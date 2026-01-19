@@ -57,6 +57,30 @@
 - **stdio transport**: Default for CLI-based assistants
 - **SSE transport**: For web-based/IDE integrations
 
+## Related Files
+- `/plans/tool-hub-mcp.md` - Implementation plan
+- `/internal/mcp/server.go` - MCP server with AI-native tool descriptions
+- `/internal/benchmark/benchmark.go` - Token efficiency benchmark with known tool counts
+
+## E2E Test Results (Claude Code Headless)
+
+**Test**: Natural language prompt → tool-hub-mcp → Figma MCP → API call
+
+**Prompt**: "Get design info from this Figma link: https://www.figma.com/design/..."
+
+**Result**: ✅ SUCCESS
+- Claude Code understood the natural language request
+- Automatically identified tool-hub-mcp as the gateway
+- Called hub_discover to find Figma tools
+- Called hub_execute with correct parameters
+- Got proper API response (403 due to auth - expected)
+
+**AI Discoverability Key Patterns**:
+1. "USE THIS TOOL WHEN" sections with universal triggers
+2. Dynamic server count and list in descriptions
+3. Focus on aggregator pattern: "external tools", "integrations", "capabilities"
+4. Server enum in inputSchema for parameter validation
+
 ## Implementation Notes
 
 - Claude Code v2.1.7+ supports "Tool Search" (lazy loading built-in)
