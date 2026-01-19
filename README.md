@@ -1,6 +1,6 @@
 # tool-hub-mcp
 
-**Serverless MCP Aggregator** - Reduce AI context token consumption by 97%+
+**Serverless MCP Aggregator** - Reduce AI context token consumption by 60-97%
 
 ## Problem
 
@@ -18,7 +18,7 @@ When using multiple MCP servers with AI clients (Claude Code, OpenCode, etc.), e
 | `hub_execute` | Execute a tool from a server |
 | `hub_help` | Get detailed help for a tool |
 
-**Result:** ~500 tokens instead of 25,000+ = **97% reduction**
+**Result:** ~461 tokens instead of 1,200-25,000+ = **61-97% reduction** (varies by server count)
 
 ## Installation
 
@@ -78,25 +78,46 @@ tool-hub-mcp add jira --command npx --arg -y --arg @lvmk/jira-mcp
 tool-hub-mcp benchmark
 ```
 
-Output:
+**Tested with public MCPs** (shadcn, sequential-thinking):
 ```
 ╔══════════════════════════════════════════════════════════════╗
 ║           TOKEN EFFICIENCY BENCHMARK RESULTS                 ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  📊 TRADITIONAL MCP SETUP                                    ║
-║     Servers: 17                                              ║
-║     Tools:   ~170 (estimated)                                ║
-║     Tokens:  ~25500                                          ║
+║     Servers: 2                                               ║
+║     Tools:   8 (actual)                                      ║
+║     Tokens:  ~1,200                                          ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  🚀 TOOL-HUB-MCP SETUP                                       ║
 ║     Servers: 1                                               ║
 ║     Tools:   5 (meta-tools)                                  ║
-║     Tokens:  461 (actual)                                    ║
+║     Tokens:  461 (measured)                                  ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  💰 SAVINGS                                                  ║
-║     Tokens saved:  ~24750                                    ║
-║     Reduction:     97.1%                                     ║
+║     Tokens saved:  ~739                                      ║
+║     Reduction:     61.5%                                     ║
 ╚══════════════════════════════════════════════════════════════╝
+```
+
+**Scaling projection:** Token savings increase with more servers:
+| Servers | Traditional Tokens | tool-hub-mcp | Savings |
+|---------|-------------------|--------------|---------|
+| 2 | 1,200 | 461 | 61% |
+| 5 | 7,500 | 461 | 94% |
+| 10 | 15,000 | 461 | 97% |
+
+### Speed Benchmark
+
+```bash
+tool-hub-mcp benchmark speed
+```
+
+**Latency results** (shadcn MCP, 7 tools):
+```
+Testing: shadcn
+  Run 1: 1.473s (7 tools discovered)  ← Cold start
+  Run 2: 0ms (7 tools discovered)     ← Warm (pooled)
+  Average: 737ms
 ```
 
 ## Commands

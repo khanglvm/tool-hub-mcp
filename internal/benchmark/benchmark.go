@@ -79,13 +79,15 @@ var knownToolCounts = map[string]int{
 	"sequentialThinking": 1,
 	"sequential":         1,
 	
+	// UI Components
+	"shadcn":             7, // shadcn/ui component library
+	
 	// Search/Web
 	"webSearch":       3,
 	"webReader":       2,
 	"brave":           3,
 	
 	// Shell/System
-	"shadcn":          3,
 	"filesystem":      8,
 	"shell":           5,
 }
