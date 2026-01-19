@@ -1,0 +1,22 @@
+# Binaries
+tool-hub-mcp
+*.exe
+
+# Dependencies
+vendor/
+
+# Test artifacts
+*.test
+coverage.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config (users' local configs)
+.tool-hub-mcp.json
