@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/khanglvm/tool-hub-mcp/internal/config"
 	"github.com/khanglvm/tool-hub-mcp/internal/spawner"
@@ -125,80 +126,126 @@ func (s *Server) handleInitialize(req *MCPRequest) (*MCPResponse, error) {
 	}, nil
 }
 
-// handleToolsList returns the list of available meta-tools.
+// handleToolsList returns the list of available meta-tools with AI-native descriptions.
 func (s *Server) handleToolsList(req *MCPRequest) (*MCPResponse, error) {
+	// Build dynamic server catalog for AI context
+	serverCatalog := s.buildServerCatalog()
+	
 	tools := []map[string]interface{}{
 		{
-			"name":        "hub_list",
-			"description": "List all registered MCP servers in tool-hub-mcp",
+			"name": "hub_list",
+			"description": fmt.Sprintf(`List all available MCP servers and their capabilities.
+
+WHEN TO USE: Call this first to discover what integrations are available.
+
+AVAILABLE SERVERS:
+%s
+
+Returns: List of server names with their sources.`, serverCatalog),
 			"inputSchema": map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
 			},
 		},
 		{
-			"name":        "hub_discover",
-			"description": "Get tool definitions from a specific MCP server. Use this to see what tools are available on a server before executing them.",
+			"name": "hub_discover",
+			"description": fmt.Sprintf(`Get detailed tool definitions from a specific MCP server.
+
+WHEN TO USE: 
+- When user mentions: figma, design, jira, issues, outline, documents, playwright, browser
+- Before executing any tool, to see available operations and required parameters
+
+AVAILABLE SERVERS: %s
+
+Example: To get Figma design info, first call hub_discover with server="figma" to see available tools.`, s.getServerNames()),
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"server": map[string]interface{}{
 						"type":        "string",
-						"description": "Name of the server (use hub_list to see available servers)",
+						"description": "Server name from available servers list",
+						"enum":        s.getServerNamesList(),
 					},
 				},
 				"required": []string{"server"},
 			},
 		},
 		{
-			"name":        "hub_search",
-			"description": "Search for tools across all registered MCP servers using keywords",
+			"name": "hub_search",
+			"description": `Search for tools across ALL servers using natural language.
+
+WHEN TO USE: When you need to find a capability but don't know which server has it.
+
+TRIGGERS: 
+- "get design", "extract figma", "design info" → searches figma tools
+- "create issue", "jira ticket", "bug report" → searches jira tools
+- "search documents", "find in wiki", "knowledge base" → searches outline tools
+- "take screenshot", "browser automation" → searches playwright/chrome tools
+
+Example queries: "get figma data", "search documents", "create jira issue"`,
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"query": map[string]interface{}{
 						"type":        "string",
-						"description": "Search query (e.g., 'create issue', 'search documents')",
+						"description": "Natural language search query describing what you want to do",
 					},
 				},
 				"required": []string{"query"},
 			},
 		},
 		{
-			"name":        "hub_execute",
-			"description": "Execute a tool from a specific MCP server",
+			"name": "hub_execute",
+			"description": fmt.Sprintf(`Execute a tool from an MCP server with the given arguments.
+
+WHEN TO USE: After discovering tools with hub_discover, use this to run them.
+
+WORKFLOW:
+1. hub_discover(server) → see available tools and their parameters
+2. hub_execute(server, tool, arguments) → run the tool
+
+AVAILABLE SERVERS: %s
+
+Example - Get Figma design:
+  hub_execute(server="figma", tool="get_figma_data", arguments={"fileKey": "abc123", "nodeId": "1:2"})`, s.getServerNames()),
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"server": map[string]interface{}{
 						"type":        "string",
-						"description": "Name of the server",
+						"description": "Server name",
+						"enum":        s.getServerNamesList(),
 					},
 					"tool": map[string]interface{}{
 						"type":        "string",
-						"description": "Name of the tool to execute",
+						"description": "Tool name (get from hub_discover)",
 					},
 					"arguments": map[string]interface{}{
 						"type":        "object",
-						"description": "Arguments to pass to the tool",
+						"description": "Tool arguments (get schema from hub_discover)",
 					},
 				},
 				"required": []string{"server", "tool"},
 			},
 		},
 		{
-			"name":        "hub_help",
-			"description": "Get detailed help and schema for a specific tool",
+			"name": "hub_help",
+			"description": `Get detailed help, schema, and examples for a specific tool.
+
+WHEN TO USE: When you need parameter details before calling hub_execute.
+
+Returns: Full JSON schema with parameter types, descriptions, and required fields.`,
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"server": map[string]interface{}{
 						"type":        "string",
-						"description": "Name of the server",
+						"description": "Server name",
+						"enum":        s.getServerNamesList(),
 					},
 					"tool": map[string]interface{}{
 						"type":        "string",
-						"description": "Name of the tool",
+						"description": "Tool name",
 					},
 				},
 				"required": []string{"server", "tool"},
@@ -213,6 +260,59 @@ func (s *Server) handleToolsList(req *MCPRequest) (*MCPResponse, error) {
 			"tools": tools,
 		},
 	}, nil
+}
+
+// buildServerCatalog creates a formatted list of servers with semantic descriptions.
+func (s *Server) buildServerCatalog() string {
+	catalog := ""
+	
+	// Semantic descriptions for known servers
+	serverDescriptions := map[string]string{
+		"figma":              "Design files, UI components, extract design data from Figma links",
+		"playwright":         "Browser automation, screenshots, web interactions, testing",
+		"chromeDevtools":     "Chrome debugging, DOM inspection, network analysis",
+		"mcpOutline":         "Documentation, wiki search, knowledge base queries",
+		"outline":            "Documentation, wiki search, knowledge base queries",
+		"jira":               "Issue tracking, create/search tickets, project management",
+		"github":             "Repositories, pull requests, issues, code search",
+		"shadcn":             "UI components, React component generation",
+		"sequentialThinking": "Step-by-step reasoning, complex problem solving",
+	}
+	
+	for name := range s.config.Servers {
+		desc := serverDescriptions[name]
+		if desc == "" {
+			desc = "MCP server integration"
+		}
+		catalog += fmt.Sprintf("  • %s: %s\n", name, desc)
+	}
+	
+	return catalog
+}
+
+// getServerNames returns a comma-separated list of server names.
+func (s *Server) getServerNames() string {
+	names := []string{}
+	for name := range s.config.Servers {
+		names = append(names, name)
+	}
+	result := ""
+	for i, name := range names {
+		if i > 0 {
+			result += ", "
+		}
+		result += name
+	}
+	return result
+}
+
+// getServerNamesList returns server names as a slice for enum.
+func (s *Server) getServerNamesList() []string {
+	names := []string{}
+	for name := range s.config.Servers {
+		names = append(names, name)
+	}
+	return names
 }
 
 // handleToolsCall handles tool execution requests.
@@ -311,10 +411,76 @@ func (s *Server) execHubDiscover(serverName string) (string, error) {
 	return result, nil
 }
 
-// execHubSearch searches for tools across all servers.
+// execHubSearch searches for tools across all servers using keyword matching.
 func (s *Server) execHubSearch(query string) (string, error) {
-	// TODO: Implement semantic search
-	return fmt.Sprintf("Search for '%s' - semantic search not yet implemented. Use hub_discover to list tools from specific servers.", query), nil
+	query = strings.ToLower(query)
+	
+	// Keyword to server mapping for intelligent routing
+	keywordMap := map[string][]string{
+		"figma":       {"figma"},
+		"design":      {"figma"},
+		"ui":          {"figma", "shadcn"},
+		"component":   {"figma", "shadcn"},
+		"screenshot":  {"playwright", "chromeDevtools"},
+		"browser":     {"playwright", "chromeDevtools"},
+		"automation":  {"playwright"},
+		"test":        {"playwright"},
+		"debug":       {"chromeDevtools"},
+		"devtools":    {"chromeDevtools"},
+		"dom":         {"chromeDevtools"},
+		"network":     {"chromeDevtools"},
+		"jira":        {"jira"},
+		"issue":       {"jira"},
+		"ticket":      {"jira"},
+		"bug":         {"jira"},
+		"sprint":      {"jira"},
+		"document":    {"mcpOutline", "outline"},
+		"wiki":        {"mcpOutline", "outline"},
+		"knowledge":   {"mcpOutline", "outline"},
+		"search":      {"mcpOutline", "outline"},
+		"github":      {"github"},
+		"repo":        {"github"},
+		"pull":        {"github"},
+		"pr":          {"github"},
+		"code":        {"github"},
+		"thinking":    {"sequentialThinking"},
+		"reasoning":   {"sequentialThinking"},
+		"problem":     {"sequentialThinking"},
+	}
+	
+	// Find matching servers
+	matchedServers := make(map[string]bool)
+	for keyword, servers := range keywordMap {
+		if strings.Contains(query, keyword) {
+			for _, server := range servers {
+				if _, exists := s.config.Servers[server]; exists {
+					matchedServers[server] = true
+				}
+			}
+		}
+	}
+	
+	if len(matchedServers) == 0 {
+		// No keyword match, return all servers as suggestions
+		var result strings.Builder
+		result.WriteString(fmt.Sprintf("No direct match for '%s'. Available servers:\n\n", query))
+		for name := range s.config.Servers {
+			result.WriteString(fmt.Sprintf("  • %s\n", name))
+		}
+		result.WriteString("\nTry hub_discover(server) to see tools from a specific server.")
+		return result.String(), nil
+	}
+	
+	// Return matched servers with recommendation
+	var result strings.Builder
+	result.WriteString(fmt.Sprintf("For '%s', recommended servers:\n\n", query))
+	
+	for server := range matchedServers {
+		result.WriteString(fmt.Sprintf("  • %s\n", server))
+	}
+	
+	result.WriteString("\nNext step: Call hub_discover(server) to see available tools, then hub_execute to run them.")
+	return result.String(), nil
 }
 
 // execHubExecute executes a tool from a server.
