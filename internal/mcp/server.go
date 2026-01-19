@@ -129,19 +129,23 @@ func (s *Server) handleInitialize(req *MCPRequest) (*MCPResponse, error) {
 // handleToolsList returns the list of available meta-tools with AI-native descriptions.
 func (s *Server) handleToolsList(req *MCPRequest) (*MCPResponse, error) {
 	// Build dynamic server catalog for AI context
-	serverCatalog := s.buildServerCatalog()
+	serverCount := len(s.config.Servers)
+	serverList := s.getServerNames()
 	
 	tools := []map[string]interface{}{
 		{
 			"name": "hub_list",
-			"description": fmt.Sprintf(`List all available MCP servers and their capabilities.
+			"description": fmt.Sprintf(`Gateway to %d external tools and integrations. Lists all available MCP servers.
 
-WHEN TO USE: Call this first to discover what integrations are available.
+USE THIS TOOL WHEN:
+• User asks about available tools, integrations, or capabilities
+• User wants to interact with external services, APIs, or data sources
+• You need to find what external tools are available before taking action
+• User mentions ANY external service, platform, or integration by name
 
-AVAILABLE SERVERS:
-%s
+AVAILABLE NOW: %s
 
-Returns: List of server names with their sources.`, serverCatalog),
+This is your entry point to external capabilities. Call this first to see what's available.`, serverCount, serverList),
 			"inputSchema": map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
@@ -149,21 +153,22 @@ Returns: List of server names with their sources.`, serverCatalog),
 		},
 		{
 			"name": "hub_discover",
-			"description": fmt.Sprintf(`Get detailed tool definitions from a specific MCP server.
+			"description": fmt.Sprintf(`Explore tools from a specific external integration. Shows available operations and required parameters.
 
-WHEN TO USE: 
-- When user mentions: figma, design, jira, issues, outline, documents, playwright, browser
-- Before executing any tool, to see available operations and required parameters
+USE THIS TOOL WHEN:
+• You know which server to use and need to see its available tools
+• User mentions a service/platform name that matches an available server
+• You need to understand what operations are possible before executing
 
 AVAILABLE SERVERS: %s
 
-Example: To get Figma design info, first call hub_discover with server="figma" to see available tools.`, s.getServerNames()),
+Returns: List of tools with descriptions and parameter schemas.`, serverList),
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"server": map[string]interface{}{
 						"type":        "string",
-						"description": "Server name from available servers list",
+						"description": "Name of the server to explore",
 						"enum":        s.getServerNamesList(),
 					},
 				},
@@ -172,23 +177,23 @@ Example: To get Figma design info, first call hub_discover with server="figma" t
 		},
 		{
 			"name": "hub_search",
-			"description": `Search for tools across ALL servers using natural language.
+			"description": `Find the right tool across all integrations using natural language.
 
-WHEN TO USE: When you need to find a capability but don't know which server has it.
+USE THIS TOOL WHEN:
+• User describes what they want to do but doesn't name a specific tool
+• You're unsure which server has the capability the user needs
+• User asks to "find", "search for", or "look for" a capability
 
-TRIGGERS: 
-- "get design", "extract figma", "design info" → searches figma tools
-- "create issue", "jira ticket", "bug report" → searches jira tools
-- "search documents", "find in wiki", "knowledge base" → searches outline tools
-- "take screenshot", "browser automation" → searches playwright/chrome tools
+HOW IT WORKS: Describe the action you want to perform in natural language.
+Examples: "create a ticket", "search documents", "get design data", "take screenshot"
 
-Example queries: "get figma data", "search documents", "create jira issue"`,
+Returns: Recommended servers that can handle the request.`,
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"query": map[string]interface{}{
 						"type":        "string",
-						"description": "Natural language search query describing what you want to do",
+						"description": "What you want to do, in natural language",
 					},
 				},
 				"required": []string{"query"},
@@ -196,18 +201,18 @@ Example queries: "get figma data", "search documents", "create jira issue"`,
 		},
 		{
 			"name": "hub_execute",
-			"description": fmt.Sprintf(`Execute a tool from an MCP server with the given arguments.
+			"description": fmt.Sprintf(`Run a tool from an external integration.
 
-WHEN TO USE: After discovering tools with hub_discover, use this to run them.
+USE THIS TOOL WHEN:
+• You've discovered available tools (via hub_discover) and know which one to run
+• You have the tool name and required arguments ready
 
 WORKFLOW:
-1. hub_discover(server) → see available tools and their parameters
-2. hub_execute(server, tool, arguments) → run the tool
+1. hub_list() → see available servers
+2. hub_discover(server) → see tools and parameters
+3. hub_execute(server, tool, arguments) → run the tool
 
-AVAILABLE SERVERS: %s
-
-Example - Get Figma design:
-  hub_execute(server="figma", tool="get_figma_data", arguments={"fileKey": "abc123", "nodeId": "1:2"})`, s.getServerNames()),
+AVAILABLE SERVERS: %s`, serverList),
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -218,11 +223,11 @@ Example - Get Figma design:
 					},
 					"tool": map[string]interface{}{
 						"type":        "string",
-						"description": "Tool name (get from hub_discover)",
+						"description": "Tool name (from hub_discover)",
 					},
 					"arguments": map[string]interface{}{
 						"type":        "object",
-						"description": "Tool arguments (get schema from hub_discover)",
+						"description": "Tool arguments (schema from hub_discover)",
 					},
 				},
 				"required": []string{"server", "tool"},
@@ -230,11 +235,13 @@ Example - Get Figma design:
 		},
 		{
 			"name": "hub_help",
-			"description": `Get detailed help, schema, and examples for a specific tool.
+			"description": `Get detailed parameter schema for a specific tool.
 
-WHEN TO USE: When you need parameter details before calling hub_execute.
+USE THIS TOOL WHEN:
+• You need the exact parameter format before calling hub_execute
+• Tool execution failed due to incorrect arguments
 
-Returns: Full JSON schema with parameter types, descriptions, and required fields.`,
+Returns: Full JSON schema with types, descriptions, and required fields.`,
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
