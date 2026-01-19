@@ -54,19 +54,68 @@ const AverageTokensPerTool = 150
 // ToolHubTools is the fixed number of meta-tools exposed by tool-hub-mcp.
 const ToolHubTools = 5
 
+// knownToolCounts contains actual tool counts for popular MCP servers.
+// These are used for more accurate benchmarking when available.
+var knownToolCounts = map[string]int{
+	// High-token servers (browser automation)
+	"playwright":      22, // browser automation, screenshots, interactions
+	"chromeDevtools":  35, // Chrome DevTools Protocol - many debugging tools
+	"chromedevtools":  35, 
+	"browser":         15,
+	
+	// Documentation/knowledge
+	"mcpOutline":      32, // Outline wiki API - many document operations
+	"outline":         32,
+	"notion":          25,
+	"confluence":      20,
+	
+	// Development tools
+	"figma":           5,  // Figma design API
+	"github":          40, // GitHub API - repos, PRs, issues, etc.
+	"jira":            13,
+	"linear":          15,
+	
+	// AI/Reasoning
+	"sequentialThinking": 1,
+	"sequential":         1,
+	
+	// Search/Web
+	"webSearch":       3,
+	"webReader":       2,
+	"brave":           3,
+	
+	// Shell/System
+	"shadcn":          3,
+	"filesystem":      8,
+	"shell":           5,
+}
+
+// getToolCount returns the estimated tool count for a server.
+func getToolCount(serverName string) int {
+	// Check known counts first
+	if count, ok := knownToolCounts[serverName]; ok {
+		return count
+	}
+	// Default to average
+	return AverageToolsPerServer
+}
+
 // RunBenchmark compares token consumption between traditional and tool-hub-mcp setups.
 func RunBenchmark(cfg *config.Config) *BenchmarkResult {
 	serverCount := len(cfg.Servers)
 	
-	// Estimate traditional setup
-	traditionalTools := serverCount * AverageToolsPerServer
+	// Estimate traditional setup using known tool counts where available
+	traditionalTools := 0
+	for name := range cfg.Servers {
+		traditionalTools += getToolCount(name)
+	}
 	traditionalTokens := traditionalTools * AverageTokensPerTool
 	
 	traditional := TokenEstimate{
 		ServerCount:      serverCount,
 		ToolCount:        traditionalTools,
 		DefinitionTokens: traditionalTokens,
-		Description:      fmt.Sprintf("%d MCP servers × ~%d tools/server", serverCount, AverageToolsPerServer),
+		Description:      fmt.Sprintf("%d MCP servers with %d total tools", serverCount, traditionalTools),
 	}
 	
 	// tool-hub-mcp setup (fixed 5 meta-tools)

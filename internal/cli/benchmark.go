@@ -87,7 +87,7 @@ func runBenchmark(jsonOutput bool) error {
 		fmt.Println("║                                                              ║")
 		fmt.Println("║  📊 TRADITIONAL MCP SETUP                                    ║")
 		fmt.Printf("║     Servers: %-3d                                             ║\n", result.Traditional.ServerCount)
-		fmt.Printf("║     Tools:   ~%-3d (estimated: %d servers × 10 tools)         ║\n", result.Traditional.ToolCount, result.Traditional.ServerCount)
+		fmt.Printf("║     Tools:   %-3d (actual/estimated per server)               ║\n", result.Traditional.ToolCount)
 		fmt.Printf("║     Tokens:  ~%-6d                                         ║\n", result.Traditional.DefinitionTokens)
 		fmt.Println("║                                                              ║")
 		fmt.Println("╠══════════════════════════════════════════════════════════════╣")
