@@ -81,6 +81,35 @@
 3. Focus on aggregator pattern: "external tools", "integrations", "capabilities"
 4. Server enum in inputSchema for parameter validation
 
+## Speed Benchmark Results
+
+**Command**: `tool-hub-mcp benchmark speed -n 3`
+
+| Metric | Cold Start | Warm (Pooled) | Average |
+|--------|------------|---------------|---------|
+| zaiMcpServer | 845ms | 0ms | 423ms |
+
+**Interpretation**:
+- Cold start latency ~1s (spawning MCP process)
+- Warm requests near-instant (process reused from pool)
+- Acceptable trade-off for 97.6% token savings
+
+## Commands Reference
+
+```bash
+# Token efficiency benchmark
+tool-hub-mcp benchmark
+
+# Speed/latency benchmark
+tool-hub-mcp benchmark speed -n 3
+
+# Setup from existing configs
+tool-hub-mcp setup
+
+# Serve as MCP
+tool-hub-mcp serve
+```
+
 ## Implementation Notes
 
 - Claude Code v2.1.7+ supports "Tool Search" (lazy loading built-in)
