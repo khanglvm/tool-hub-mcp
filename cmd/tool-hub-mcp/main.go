@@ -70,7 +70,11 @@ Token savings: 96%+ reduction (5 meta-tools vs 100+ individual tools)`,
 	rootCmd.AddCommand(cli.NewRemoveCmd())
 	rootCmd.AddCommand(cli.NewListCmd())
 	rootCmd.AddCommand(cli.NewVerifyCmd())
-	rootCmd.AddCommand(cli.NewBenchmarkCmd())
+	
+	// Benchmark command with speed subcommand
+	benchmarkCmd := cli.NewBenchmarkCmd()
+	benchmarkCmd.AddCommand(cli.NewSpeedBenchmarkCmd())
+	rootCmd.AddCommand(benchmarkCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
