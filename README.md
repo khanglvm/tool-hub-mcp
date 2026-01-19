@@ -72,53 +72,35 @@ tool-hub-mcp add --json '{
 tool-hub-mcp add jira --command npx --arg -y --arg @lvmk/jira-mcp
 ```
 
-### Run Token Benchmark
+### Benchmark
 
 ```bash
+# Token efficiency
 tool-hub-mcp benchmark
-```
 
-**Tested with public MCPs** (shadcn, sequential-thinking):
-```
-╔══════════════════════════════════════════════════════════════╗
-║           TOKEN EFFICIENCY BENCHMARK RESULTS                 ║
-╠══════════════════════════════════════════════════════════════╣
-║  📊 TRADITIONAL MCP SETUP                                    ║
-║     Servers: 2                                               ║
-║     Tools:   8 (actual)                                      ║
-║     Tokens:  ~1,200                                          ║
-╠══════════════════════════════════════════════════════════════╣
-║  🚀 TOOL-HUB-MCP SETUP                                       ║
-║     Servers: 1                                               ║
-║     Tools:   5 (meta-tools)                                  ║
-║     Tokens:  461 (measured)                                  ║
-╠══════════════════════════════════════════════════════════════╣
-║  💰 SAVINGS                                                  ║
-║     Tokens saved:  ~739                                      ║
-║     Reduction:     61.5%                                     ║
-╚══════════════════════════════════════════════════════════════╝
-```
-
-**Scaling projection:** Token savings increase with more servers:
-| Servers | Traditional Tokens | tool-hub-mcp | Savings |
-|---------|-------------------|--------------|---------|
-| 2 | 1,200 | 461 | 61% |
-| 5 | 7,500 | 461 | 94% |
-| 10 | 15,000 | 461 | 97% |
-
-### Speed Benchmark
-
-```bash
+# Speed/latency
 tool-hub-mcp benchmark speed
 ```
 
-**Latency results** (shadcn MCP, 7 tools):
-```
-Testing: shadcn
-  Run 1: 1.473s (7 tools discovered)  ← Cold start
-  Run 2: 0ms (7 tools discovered)     ← Warm (pooled)
-  Average: 737ms
-```
+**Verified results with 3 production MCPs** (mcpOutline, shadcn, Figma):
+
+| Metric | Value |
+|--------|-------|
+| **Token Benchmark** | |
+| Traditional MCP tokens | ~6,600 (39 tools) |
+| tool-hub-mcp tokens | 461 (5 meta-tools) |
+| **Token savings** | **88.6%** |
+| **Speed Benchmark** | |
+| Average latency | 380ms |
+| Cold start range | 320ms - 1.4s |
+| Warm latency | 0-1ms (pooled) |
+
+**Per-server breakdown:**
+| MCP Server | Tools | Avg Latency |
+|------------|-------|-------------|
+| mcp-outline | 30 | 271ms |
+| shadcn | 7 | 709ms |
+| Figma | 2 | 161ms |
 
 ## Commands
 
