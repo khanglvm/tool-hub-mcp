@@ -200,7 +200,10 @@ func (proc *Process) initialize() error {
 	return err
 }
 
-// sendRequest sends a JSON-RPC request and waits for response.
+// DefaultTimeout is the maximum time to wait for an MCP response.
+const DefaultTimeout = 30 * time.Second
+
+// sendRequest sends a JSON-RPC request and waits for response with timeout.
 func (proc *Process) sendRequest(method string, params interface{}) (interface{}, error) {
 	proc.mu.Lock()
 	defer proc.mu.Unlock()
@@ -226,32 +229,47 @@ func (proc *Process) sendRequest(method string, params interface{}) (interface{}
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	// Read response (with timeout)
-	// TODO: Implement proper timeout handling
-	line, err := proc.stdout.ReadBytes('\n')
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
+	// Read response with timeout
+	responseChan := make(chan []byte, 1)
+	errorChan := make(chan error, 1)
 
-	var resp struct {
-		JSONRPC string      `json:"jsonrpc"`
-		ID      interface{} `json:"id"`
-		Result  interface{} `json:"result"`
-		Error   *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
+	go func() {
+		line, err := proc.stdout.ReadBytes('\n')
+		if err != nil {
+			errorChan <- fmt.Errorf("failed to read response: %w", err)
+			return
+		}
+		responseChan <- line
+	}()
 
-	if err := json.Unmarshal(line, &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
+	select {
+	case line := <-responseChan:
+		var resp struct {
+			JSONRPC string      `json:"jsonrpc"`
+			ID      interface{} `json:"id"`
+			Result  interface{} `json:"result"`
+			Error   *struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
 
-	if resp.Error != nil {
-		return nil, fmt.Errorf("MCP error %d: %s", resp.Error.Code, resp.Error.Message)
-	}
+		if err := json.Unmarshal(line, &resp); err != nil {
+			return nil, fmt.Errorf("failed to parse response: %w", err)
+		}
 
-	return resp.Result, nil
+		if resp.Error != nil {
+			return nil, fmt.Errorf("MCP error %d: %s", resp.Error.Code, resp.Error.Message)
+		}
+
+		return resp.Result, nil
+
+	case err := <-errorChan:
+		return nil, err
+
+	case <-time.After(DefaultTimeout):
+		return nil, fmt.Errorf("timeout after %v waiting for MCP response", DefaultTimeout)
+	}
 }
 
 // kill terminates the process.
