@@ -82,25 +82,27 @@ tool-hub-mcp benchmark
 tool-hub-mcp benchmark speed
 ```
 
-**Verified results with 3 production MCPs** (mcpOutline, shadcn, Figma):
+**Verified results with 5 production MCPs** (Playwright, Chrome DevTools, mcp-outline, shadcn, Figma):
 
 | Metric | Value |
 |--------|-------|
 | **Token Benchmark** | |
-| Traditional MCP tokens | ~6,600 (39 tools) |
+| Traditional MCP tokens | ~15,150 (98 tools) |
 | tool-hub-mcp tokens | 461 (5 meta-tools) |
-| **Token savings** | **88.6%** |
+| **Token savings** | **95.0%** |
 | **Speed Benchmark** | |
-| Average latency | 380ms |
-| Cold start range | 320ms - 1.4s |
+| Average latency | 307ms |
+| Cold start range | 352ms - 1.5s |
 | Warm latency | 0-1ms (pooled) |
 
 **Per-server breakdown:**
 | MCP Server | Tools | Avg Latency |
 |------------|-------|-------------|
-| mcp-outline | 30 | 271ms |
-| shadcn | 7 | 709ms |
-| Figma | 2 | 161ms |
+| Playwright | 33 | 498ms |
+| Chrome DevTools | 26 | 295ms |
+| mcp-outline | 30 | 202ms |
+| shadcn | 7 | 424ms |
+| Figma | 2 | 118ms |
 
 ## Commands
 

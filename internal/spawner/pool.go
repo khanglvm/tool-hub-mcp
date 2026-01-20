@@ -44,7 +44,12 @@ type Process struct {
 	stdin  io.WriteCloser
 	stdout *bufio.Reader
 	mu     sync.Mutex
+	// reqID is an atomic counter for generating request IDs
+	// We use a counter instead of UnixNano to avoid JavaScript precision issues
+	// (JS Number.MAX_SAFE_INTEGER = 2^53-1 = 9007199254740991)
+	reqID  int64
 }
+
 
 // NewPool creates a new process pool.
 func NewPool(maxSize int) *Pool {
@@ -176,9 +181,22 @@ func (p *Pool) spawn(cfg *config.ServerConfig) (*Process, error) {
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
+	// CRITICAL: Create stderr pipe and drain it in background to prevent
+	// pipe buffer deadlock. Some MCPs write to stderr during startup and 
+	// if the buffer fills up (~64KB), it blocks the entire process including stdout.
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start process: %w", err)
 	}
+
+	// Drain stderr in background to prevent blocking
+	go func() {
+		io.Copy(io.Discard, stderr)
+	}()
 
 	return &Process{
 		cmd:    cmd,
@@ -187,8 +205,10 @@ func (p *Pool) spawn(cfg *config.ServerConfig) (*Process, error) {
 	}, nil
 }
 
-// initialize sends the MCP initialize request to the server.
+
+// initialize sends the MCP initialize request and initialized notification.
 func (proc *Process) initialize() error {
+	// Step 1: Send initialize request
 	_, err := proc.sendRequest("initialize", map[string]interface{}{
 		"protocolVersion": "2024-11-05",
 		"capabilities":    map[string]interface{}{},
@@ -197,21 +217,48 @@ func (proc *Process) initialize() error {
 			"version": "0.1.0",
 		},
 	})
+	if err != nil {
+		return err
+	}
+
+	// Step 2: Send initialized notification (required by MCP protocol)
+	// This is a notification, not a request - no response expected
+	notification := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "notifications/initialized",
+	}
+	notifBytes, err := json.Marshal(notification)
+	if err != nil {
+		return err
+	}
+	notifBytes = append(notifBytes, '\n')
+	
+	proc.mu.Lock()
+	_, err = proc.stdin.Write(notifBytes)
+	proc.mu.Unlock()
+	
 	return err
 }
 
+
 // DefaultTimeout is the maximum time to wait for an MCP response.
-const DefaultTimeout = 30 * time.Second
+// Set to 60s to handle npx package downloads on cold start.
+const DefaultTimeout = 60 * time.Second
 
 // sendRequest sends a JSON-RPC request and waits for response with timeout.
 func (proc *Process) sendRequest(method string, params interface{}) (interface{}, error) {
 	proc.mu.Lock()
 	defer proc.mu.Unlock()
 
+	// Generate a safe request ID using atomic counter
+	// This avoids JavaScript precision issues with large UnixNano values
+	proc.reqID++
+	reqID := proc.reqID
+
 	// Build request
 	req := map[string]interface{}{
 		"jsonrpc": "2.0",
-		"id":      time.Now().UnixNano(),
+		"id":      reqID,
 		"method":  method,
 	}
 	if params != nil {
