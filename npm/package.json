@@ -1,0 +1,45 @@
+{
+    "name": "@khanglvm/tool-hub-mcp",
+    "version": "1.0.1",
+    "description": "Serverless MCP Aggregator - Reduce AI context token consumption by 60-97%",
+    "bin": {
+        "tool-hub-mcp": "./cli.js"
+    },
+    "main": "./cli.js",
+    "files": [
+        "cli.js",
+        "postinstall.js"
+    ],
+    "scripts": {
+        "postinstall": "node postinstall.js"
+    },
+    "optionalDependencies": {
+        "@khanglvm/tool-hub-mcp-darwin-arm64": "1.0.0",
+        "@khanglvm/tool-hub-mcp-darwin-x64": "1.0.0",
+        "@khanglvm/tool-hub-mcp-linux-x64": "1.0.0",
+        "@khanglvm/tool-hub-mcp-linux-arm64": "1.0.0",
+        "@khanglvm/tool-hub-mcp-win32-x64": "1.0.0"
+    },
+    "keywords": [
+        "mcp",
+        "model-context-protocol",
+        "ai",
+        "claude",
+        "opencode",
+        "aggregator",
+        "serverless"
+    ],
+    "author": "khanglvm",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/khanglvm/tool-hub-mcp.git"
+    },
+    "bugs": {
+        "url": "https://github.com/khanglvm/tool-hub-mcp/issues"
+    },
+    "homepage": "https://github.com/khanglvm/tool-hub-mcp#readme",
+    "engines": {
+        "node": ">=18"
+    }
+}

@@ -1,0 +1,23 @@
+{
+    "name": "@khanglvm/tool-hub-mcp-win32-x64",
+    "version": "1.0.0",
+    "description": "Platform-specific binary for tool-hub-mcp (Windows x64)",
+    "os": [
+        "win32"
+    ],
+    "cpu": [
+        "x64"
+    ],
+    "bin": {
+        "tool-hub-mcp": "./bin/tool-hub-mcp.exe"
+    },
+    "files": [
+        "bin"
+    ],
+    "author": "khanglvm",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/khanglvm/tool-hub-mcp.git"
+    }
+}

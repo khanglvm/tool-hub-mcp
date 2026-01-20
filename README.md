@@ -23,10 +23,13 @@ When using multiple MCP servers with AI clients (Claude Code, OpenCode, etc.), e
 ## Installation
 
 ```bash
-# From source
+# Zero-install (recommended) - works with npx, bunx, pnpm dlx, yarn dlx
+npx @khanglvm/tool-hub-mcp setup
+
+# Alternative: Go install
 go install github.com/khanglvm/tool-hub-mcp/cmd/tool-hub-mcp@latest
 
-# Or download binary from releases
+# Alternative: Direct binary download
 curl -fsSL https://github.com/khanglvm/tool-hub-mcp/releases/latest/download/tool-hub-mcp-$(uname -s)-$(uname -m) -o tool-hub-mcp
 chmod +x tool-hub-mcp
 ```

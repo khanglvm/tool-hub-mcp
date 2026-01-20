@@ -8,7 +8,14 @@ on:
 permissions:
   contents: write
 
+env:
+  # Version from tag (strips 'v' prefix for npm)
+  VERSION: ${{ github.ref_name }}
+
 jobs:
+  # ============================================
+  # Build Go binaries for all platforms
+  # ============================================
   build:
     runs-on: ubuntu-latest
     strategy:
@@ -17,18 +24,23 @@ jobs:
           - goos: darwin
             goarch: amd64
             suffix: Darwin-x86_64
+            npm_platform: darwin-x64
           - goos: darwin
             goarch: arm64
             suffix: Darwin-arm64
+            npm_platform: darwin-arm64
           - goos: linux
             goarch: amd64
             suffix: Linux-x86_64
+            npm_platform: linux-x64
           - goos: linux
             goarch: arm64
             suffix: Linux-arm64
+            npm_platform: linux-arm64
           - goos: windows
             goarch: amd64
             suffix: Windows-x86_64.exe
+            npm_platform: win32-x64
 
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +65,16 @@ jobs:
           name: tool-hub-mcp-${{ matrix.suffix }}
           path: tool-hub-mcp-${{ matrix.suffix }}
 
+      # Store platform info for npm packaging
+      - name: Upload platform metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-platform-${{ matrix.npm_platform }}
+          path: tool-hub-mcp-${{ matrix.suffix }}
+
+  # ============================================
+  # Create GitHub Release with all binaries
+  # ============================================
   release:
     needs: build
     runs-on: ubuntu-latest
@@ -61,9 +83,88 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          pattern: tool-hub-mcp-*
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: artifacts/**/*
           generate_release_notes: true
+
+  # ============================================
+  # Publish npm packages
+  # ============================================
+  npm-publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download all platform binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: npm-platform-*
+
+      - name: Extract version from tag
+        run: echo "NPM_VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+
+      - name: Prepare platform packages
+        run: |
+          # Map of npm platforms to binary suffixes
+          declare -A SUFFIX_MAP=(
+            ["darwin-arm64"]="Darwin-arm64"
+            ["darwin-x64"]="Darwin-x86_64"
+            ["linux-x64"]="Linux-x86_64"
+            ["linux-arm64"]="Linux-arm64"
+            ["win32-x64"]="Windows-x86_64.exe"
+          )
+          
+          for npm_platform in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64; do
+            suffix="${SUFFIX_MAP[$npm_platform]}"
+            platform_dir="npm/platforms/${npm_platform}"
+            bin_dir="${platform_dir}/bin"
+            
+            mkdir -p "${bin_dir}"
+            
+            # Copy binary to platform package
+            if [[ "$npm_platform" == "win32-x64" ]]; then
+              cp "artifacts/npm-platform-${npm_platform}/tool-hub-mcp-${suffix}" "${bin_dir}/tool-hub-mcp.exe"
+            else
+              cp "artifacts/npm-platform-${npm_platform}/tool-hub-mcp-${suffix}" "${bin_dir}/tool-hub-mcp"
+              chmod +x "${bin_dir}/tool-hub-mcp"
+            fi
+            
+            # Update version in package.json
+            cd "${platform_dir}"
+            npm version "${NPM_VERSION}" --no-git-tag-version --allow-same-version
+            cd - > /dev/null
+          done
+          
+          # Update main package version
+          cd npm
+          npm version "${NPM_VERSION}" --no-git-tag-version --allow-same-version
+          cd - > /dev/null
+
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for npm_platform in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64; do
+            cd "npm/platforms/${npm_platform}"
+            npm publish --access public || echo "Platform package may already exist"
+            cd - > /dev/null
+          done
+
+      - name: Publish main package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd npm
+          npm publish --access public
