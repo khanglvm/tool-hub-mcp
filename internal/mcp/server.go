@@ -128,24 +128,24 @@ func (s *Server) handleInitialize(req *MCPRequest) (*MCPResponse, error) {
 
 // handleToolsList returns the list of available meta-tools with AI-native descriptions.
 func (s *Server) handleToolsList(req *MCPRequest) (*MCPResponse, error) {
-	// Build dynamic server catalog for AI context
-	serverCount := len(s.config.Servers)
+	// Build dynamic server list for AI context (runtime, not hardcoded)
 	serverList := s.getServerNames()
 	
 	tools := []map[string]interface{}{
 		{
 			"name": "hub_list",
-			"description": fmt.Sprintf(`Gateway to %d external tools and integrations. Lists all available MCP servers.
+			"description": `Gateway to external tools and integrations. Lists all available MCP servers.
 
-USE THIS TOOL WHEN:
+USE THIS TOOL FIRST WHEN:
 • User asks about available tools, integrations, or capabilities
-• User wants to interact with external services, APIs, or data sources
-• You need to find what external tools are available before taking action
+• User wants to interact with external services, APIs, or data sources  
+• You need to discover what external tools are available before taking action
 • User mentions ANY external service, platform, or integration by name
 
-AVAILABLE NOW: %s
+IMPORTANT: This tool hub does NOT know what tools are available until you call hub_list.
+You MUST call this tool first to discover currently configured servers and their capabilities.
 
-This is your entry point to external capabilities. Call this first to see what's available.`, serverCount, serverList),
+Returns: List of registered MCP server names that you can then explore with hub_discover.`,
 			"inputSchema": map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
@@ -156,13 +156,13 @@ This is your entry point to external capabilities. Call this first to see what's
 			"description": fmt.Sprintf(`Explore tools from a specific external integration. Shows available operations and required parameters.
 
 USE THIS TOOL WHEN:
-• You know which server to use and need to see its available tools
-• User mentions a service/platform name that matches an available server
-• You need to understand what operations are possible before executing
+• You have called hub_list and know which server to explore
+• You need to see what tools/operations a specific server provides
+• You need parameter schemas before calling hub_execute
 
-AVAILABLE SERVERS: %s
+CURRENTLY REGISTERED: %s
 
-Returns: List of tools with descriptions and parameter schemas.`, serverList),
+Returns: List of tools with descriptions and parameter schemas from the specified server.`, serverList),
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -184,16 +184,16 @@ USE THIS TOOL WHEN:
 • You're unsure which server has the capability the user needs
 • User asks to "find", "search for", or "look for" a capability
 
-HOW IT WORKS: Describe the action you want to perform in natural language.
-Examples: "create a ticket", "search documents", "get design data", "take screenshot"
+HOW IT WORKS: Searches registered server names for matches to your query.
+For best results, include server names or related keywords in your query.
 
-Returns: Recommended servers that can handle the request.`,
+Returns: Matching servers from those currently registered. Use hub_discover to see their tools.`,
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"query": map[string]interface{}{
 						"type":        "string",
-						"description": "What you want to do, in natural language",
+						"description": "What you want to do, or server name to find",
 					},
 				},
 				"required": []string{"query"},
@@ -209,10 +209,10 @@ USE THIS TOOL WHEN:
 
 WORKFLOW:
 1. hub_list() → see available servers
-2. hub_discover(server) → see tools and parameters
+2. hub_discover(server) → see tools and parameters  
 3. hub_execute(server, tool, arguments) → run the tool
 
-AVAILABLE SERVERS: %s`, serverList),
+CURRENTLY REGISTERED: %s`, serverList),
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -269,31 +269,13 @@ Returns: Full JSON schema with types, descriptions, and required fields.`,
 	}, nil
 }
 
-// buildServerCatalog creates a formatted list of servers with semantic descriptions.
+// buildServerCatalog creates a formatted list of servers.
+// Note: No hardcoded descriptions - descriptions come from the servers themselves via hub_discover.
 func (s *Server) buildServerCatalog() string {
 	catalog := ""
-	
-	// Semantic descriptions for known servers
-	serverDescriptions := map[string]string{
-		"figma":              "Design files, UI components, extract design data from Figma links",
-		"playwright":         "Browser automation, screenshots, web interactions, testing",
-		"chromeDevtools":     "Chrome debugging, DOM inspection, network analysis",
-		"mcpOutline":         "Documentation, wiki search, knowledge base queries",
-		"outline":            "Documentation, wiki search, knowledge base queries",
-		"jira":               "Issue tracking, create/search tickets, project management",
-		"github":             "Repositories, pull requests, issues, code search",
-		"shadcn":             "UI components, React component generation",
-		"sequentialThinking": "Step-by-step reasoning, complex problem solving",
-	}
-	
 	for name := range s.config.Servers {
-		desc := serverDescriptions[name]
-		if desc == "" {
-			desc = "MCP server integration"
-		}
-		catalog += fmt.Sprintf("  • %s: %s\n", name, desc)
+		catalog += fmt.Sprintf("  • %s\n", name)
 	}
-	
 	return catalog
 }
 
@@ -418,57 +400,23 @@ func (s *Server) execHubDiscover(serverName string) (string, error) {
 	return result, nil
 }
 
-// execHubSearch searches for tools across all servers using keyword matching.
+// execHubSearch searches for tools across all servers by matching against registered server names.
+// No hardcoded keyword mappings - matches dynamically against actual configured servers.
 func (s *Server) execHubSearch(query string) (string, error) {
 	query = strings.ToLower(query)
 	
-	// Keyword to server mapping for intelligent routing
-	keywordMap := map[string][]string{
-		"figma":       {"figma"},
-		"design":      {"figma"},
-		"ui":          {"figma", "shadcn"},
-		"component":   {"figma", "shadcn"},
-		"screenshot":  {"playwright", "chromeDevtools"},
-		"browser":     {"playwright", "chromeDevtools"},
-		"automation":  {"playwright"},
-		"test":        {"playwright"},
-		"debug":       {"chromeDevtools"},
-		"devtools":    {"chromeDevtools"},
-		"dom":         {"chromeDevtools"},
-		"network":     {"chromeDevtools"},
-		"jira":        {"jira"},
-		"issue":       {"jira"},
-		"ticket":      {"jira"},
-		"bug":         {"jira"},
-		"sprint":      {"jira"},
-		"document":    {"mcpOutline", "outline"},
-		"wiki":        {"mcpOutline", "outline"},
-		"knowledge":   {"mcpOutline", "outline"},
-		"search":      {"mcpOutline", "outline"},
-		"github":      {"github"},
-		"repo":        {"github"},
-		"pull":        {"github"},
-		"pr":          {"github"},
-		"code":        {"github"},
-		"thinking":    {"sequentialThinking"},
-		"reasoning":   {"sequentialThinking"},
-		"problem":     {"sequentialThinking"},
-	}
-	
-	// Find matching servers
-	matchedServers := make(map[string]bool)
-	for keyword, servers := range keywordMap {
-		if strings.Contains(query, keyword) {
-			for _, server := range servers {
-				if _, exists := s.config.Servers[server]; exists {
-					matchedServers[server] = true
-				}
-			}
+	// Match against actual registered server names (dynamic, no hardcoding)
+	matchedServers := []string{}
+	for name := range s.config.Servers {
+		nameLower := strings.ToLower(name)
+		// Match if query contains server name or server name contains query
+		if strings.Contains(query, nameLower) || strings.Contains(nameLower, query) {
+			matchedServers = append(matchedServers, name)
 		}
 	}
 	
 	if len(matchedServers) == 0 {
-		// No keyword match, return all servers as suggestions
+		// No match, return all servers as suggestions
 		var result strings.Builder
 		result.WriteString(fmt.Sprintf("No direct match for '%s'. Available servers:\n\n", query))
 		for name := range s.config.Servers {
@@ -480,9 +428,9 @@ func (s *Server) execHubSearch(query string) (string, error) {
 	
 	// Return matched servers with recommendation
 	var result strings.Builder
-	result.WriteString(fmt.Sprintf("For '%s', recommended servers:\n\n", query))
+	result.WriteString(fmt.Sprintf("For '%s', matching servers:\n\n", query))
 	
-	for server := range matchedServers {
+	for _, server := range matchedServers {
 		result.WriteString(fmt.Sprintf("  • %s\n", server))
 	}
 	

@@ -20,3 +20,4 @@ Thumbs.db
 
 # Config (users' local configs)
 .tool-hub-mcp.json
+scripts/publish-npm.sh
