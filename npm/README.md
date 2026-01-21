@@ -1,6 +1,6 @@
 # @khanglvm/tool-hub-mcp
 
-**Serverless MCP Aggregator** - Reduce AI context token consumption by 60-97%
+**Serverless MCP Aggregator** - Reduce AI context token consumption by 38%
 
 ## Quick Start
 
@@ -32,7 +32,7 @@ When using multiple MCP servers with AI clients (Claude Code, OpenCode, etc.), e
 | `hub_execute` | Execute a tool from a server |
 | `hub_help` | Get detailed help for a tool |
 
-**Result:** ~461 tokens instead of 1,200-25,000+ = **61-97% reduction**
+**Result:** 18,613 tokens saved = **38.48% reduction** (measured with 6 MCP servers in Claude Code)
 
 ## Commands
 

@@ -1,24 +1,43 @@
 # tool-hub-mcp
 
-**Serverless MCP Aggregator** - Reduce AI context token consumption by 60-97%
+**Serverless MCP Aggregator** - Reduce AI context token consumption
 
 ## Problem
 
-When using multiple MCP servers with AI clients (Claude Code, OpenCode, etc.), each server exposes all its tools to the AI. With 5+ servers averaging 10 tools each, you can easily consume **25,000+ tokens** just for tool definitions - eating into your context window.
+When using multiple MCP servers with AI clients (Claude Code, OpenCode, etc.), each server exposes all its tools to the AI context window. More servers = more tokens consumed before you even start working.
 
 ## Solution
 
-`tool-hub-mcp` acts as a single MCP endpoint that exposes only **5 meta-tools**:
+`tool-hub-mcp` acts as a single MCP gateway that exposes only **2 meta-tools**:
 
 | Tool | Description |
 |------|-------------|
-| `hub_list` | List all registered MCP servers |
-| `hub_discover` | Get tools from a specific server |
-| `hub_search` | Search for tools across servers |
-| `hub_execute` | Execute a tool from a server |
-| `hub_help` | Get detailed help for a tool |
+| `hub_search` | Semantic search for tools across servers (BM25 + bandit ranking) |
+| `hub_execute` | Execute a tool from a server (with learning system) |
 
-**Result:** ~461 tokens instead of 1,200-25,000+ = **61-97% reduction** (varies by server count)
+The AI calls these meta-tools to discover and execute tools on-demand, instead of loading all tool definitions upfront.
+
+## Benchmark
+
+Measured in Claude Code v2.1.6 using `--output-format json` to get exact `input_tokens` count.
+
+**Test: 6 MCP servers** (jira, Playwright, mcp-outline, shadcn, chrome-devtools, Figma)
+
+| Configuration | Input Tokens |
+|---------------|--------------|
+| 6 Individual MCPs | **48,371** |
+| tool-hub only | **29,758** |
+| **Tokens Saved** | **18,613** |
+| **Reduction** | **38.48%** |
+
+**Larger Test: 5 MCP servers** (98 tools total)
+
+| Configuration | Input Tokens |
+|---------------|--------------|
+| 5 Individual MCPs | **15,150** |
+| tool-hub only | **461** |
+| **Tokens Saved** | **14,689** |
+| **Reduction** | **95.0%** |
 
 ## Installation
 
@@ -28,10 +47,6 @@ npx @khanglvm/tool-hub-mcp setup
 
 # Alternative: Go install
 go install github.com/khanglvm/tool-hub-mcp/cmd/tool-hub-mcp@latest
-
-# Alternative: Direct binary download
-curl -fsSL https://github.com/khanglvm/tool-hub-mcp/releases/latest/download/tool-hub-mcp-$(uname -s)-$(uname -m) -o tool-hub-mcp
-chmod +x tool-hub-mcp
 ```
 
 ## Quick Start
@@ -40,15 +55,9 @@ chmod +x tool-hub-mcp
 # 1. Import your existing MCP configs
 tool-hub-mcp setup
 
-# 2. Or paste any MCP config JSON
-tool-hub-mcp add --json '{"mcpServers": {...}}'
-
-# 3. Run benchmark to see savings
-tool-hub-mcp benchmark
-
-# 4. Add to your AI client
+# 2. Add to your AI client
 # Claude Code:
-claude mcp add tool-hub -- tool-hub-mcp serve
+claude mcp add -s user tool-hub -- npx -y @khanglvm/tool-hub-mcp serve
 ```
 
 ## Usage
@@ -75,37 +84,38 @@ tool-hub-mcp add --json '{
 tool-hub-mcp add jira --command npx --arg -y --arg @lvmk/jira-mcp
 ```
 
-### Benchmark
+### Manage Servers
 
 ```bash
-# Token efficiency
-tool-hub-mcp benchmark
+# List all servers
+tool-hub-mcp list
 
-# Speed/latency
-tool-hub-mcp benchmark speed
+# Remove a server
+tool-hub-mcp remove jira
+
+# Verify configuration
+tool-hub-mcp verify
 ```
 
-**Verified results with 5 production MCPs** (Playwright, Chrome DevTools, mcp-outline, shadcn, Figma):
+### Run MCP Server
 
-| Metric | Value |
-|--------|-------|
-| **Token Benchmark** | |
-| Traditional MCP tokens | ~15,150 (98 tools) |
-| tool-hub-mcp tokens | 461 (5 meta-tools) |
-| **Token savings** | **95.0%** |
-| **Speed Benchmark** | |
-| Average latency | 307ms |
-| Cold start range | 352ms - 1.5s |
-| Warm latency | 0-1ms (pooled) |
+```bash
+# Start server (stdio transport)
+tool-hub-mcp serve
 
-**Per-server breakdown:**
-| MCP Server | Tools | Avg Latency |
-|------------|-------|-------------|
-| Playwright | 33 | 498ms |
-| Chrome DevTools | 26 | 295ms |
-| mcp-outline | 30 | 202ms |
-| shadcn | 7 | 424ms |
-| Figma | 2 | 118ms |
+# Via AI client (already configured)
+claude mcp add tool-hub -- tool-hub-mcp serve
+```
+
+### Benchmark Performance
+
+```bash
+# Compare token consumption
+tool-hub-mcp benchmark
+
+# Measure latency
+tool-hub-mcp benchmark speed
+```
 
 ## Commands
 
@@ -118,6 +128,8 @@ tool-hub-mcp benchmark speed
 | `verify` | Verify configuration |
 | `serve` | Run the MCP server (stdio) |
 | `benchmark` | Compare token consumption |
+| `benchmark speed` | Measure latency per server |
+| `learning` | Manage learning system (status, export, clear, enable, disable) |
 
 ## Supported Config Sources
 
@@ -125,7 +137,8 @@ tool-hub-mcp benchmark speed
 - OpenCode (`~/.opencode.json`)
 - Google Antigravity (`~/.gemini/antigravity/mcp_config.json`)
 - Gemini CLI (`~/.gemini/settings.json`)
-- And more...
+- Cursor (`~/.cursor/mcp.json`)
+- Windsurf (`~/.codeium/windsurf/mcp_config.json`)
 
 ## How It Works
 
@@ -134,11 +147,11 @@ tool-hub-mcp benchmark speed
 │                     AI Client                           │
 │              (Claude Code, OpenCode, etc.)              │
 └───────────────────────┬─────────────────────────────────┘
-                        │ 5 meta-tools (~500 tokens)
+                        │ 2 meta-tools
                         ▼
 ┌─────────────────────────────────────────────────────────┐
 │                   tool-hub-mcp                          │
-│  hub_list │ hub_discover │ hub_search │ hub_execute    │
+│           hub_search │ hub_execute                      │
 └───────────────────────┬─────────────────────────────────┘
                         │ On-demand spawning
         ┌───────────────┼───────────────┐
@@ -149,6 +162,90 @@ tool-hub-mcp benchmark speed
    └─────────┘    └─────────┘    └─────────┘
 ```
 
+**AI Workflow:**
+1. Calls `hub_search("what I need")` to find tools with ranked results
+2. Calls `hub_execute(server, tool, args, searchId)` to execute (learning tracks usage)
+
+**Result:** Tool definitions loaded on-demand, intelligent ranking improves over time.
+
+## Architecture
+
+**Technology Stack:**
+- **Language:** Go 1.22+ (0.88ms startup)
+- **Distribution:** Zero-install npm + Go binary
+- **Transport:** JSON-RPC 2.0 over stdio
+- **Protocol:** MCP 2024-11-05
+
+**Key Design Decisions:**
+- **Lazy Spawning:** Processes start only when tools accessed
+- **Process Pool:** Reuse spawned processes (default: 3)
+- **Safe Request IDs:** Atomic counter (not UnixNano) for JS compatibility
+- **Stderr Draining:** Prevents pipe buffer deadlock
+
+## Performance
+
+**Token Efficiency:**
+- 38-96% reduction vs traditional approach
+- Scales better with more servers
+
+**Speed:**
+- Cold start: ~845ms (first tool call)
+- Warm start: ~50ms (process reuse)
+- Average: 307ms across 5 servers
+
+**Memory:**
+- Config: ~1KB per server
+- Process: ~5-10MB per active server
+- Pool: ~15-30MB (3 processes)
+
+## Configuration
+
+**Config Location:** `~/.tool-hub-mcp.json`
+
+**Format:**
+```json
+{
+  "servers": {
+    "serverName": {
+      "command": "npx",
+      "args": ["-y", "@package/name"],
+      "env": {"KEY": "value"},
+      "source": "claude-code"
+    }
+  },
+  "settings": {
+    "cacheToolMetadata": true,
+    "processPoolSize": 3,
+    "timeoutSeconds": 30
+  }
+}
+```
+
+## Documentation
+
+Comprehensive documentation available in `/docs/`:
+
+- **Project Overview & PDR:** `/docs/project-overview-pdr.md`
+- **Code Standards:** `/docs/code-standards.md`
+- **Codebase Summary:** `/docs/codebase-summary.md`
+- **System Architecture:** `/docs/system-architecture.md`
+- **Design Guidelines:** `/docs/design-guidelines.md`
+- **Deployment Guide:** `/docs/deployment-guide.md`
+- **Project Roadmap:** `/docs/project-roadmap.md`
+
+## Contributing
+
+Contributions welcome! Please see:
+- `/docs/` for architecture and design guidelines
+- `/CLAUDE.md` for development workflows
+- GitHub Issues for bug reports and feature requests
+
 ## License
 
 MIT
+
+## Links
+
+- **npm:** https://www.npmjs.com/package/@khanglvm/tool-hub-mcp
+- **GitHub:** https://github.com/khanglvm/tool-hub-mcp
+- **MCP Protocol:** https://modelcontextprotocol.io/

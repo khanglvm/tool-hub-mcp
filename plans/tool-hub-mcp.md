@@ -168,7 +168,7 @@ Instead of exposing 50+ tools, only these **5 meta-tools** are exposed:
 **After (tool-hub-mcp, 5 meta-tools):**
 - Meta-tool definitions: ~2,000 tokens
 - Context window consumed: <5%
-- **Savings: 96%+ token reduction**
+- **Savings: 38% token reduction** (measured with 6 MCPs in Claude Code)
 
 ## CLI Commands
 
