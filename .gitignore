@@ -20,4 +20,16 @@ Thumbs.db
 
 # Config (users' local configs)
 .tool-hub-mcp.json
+.tool-hub-mcp/
 scripts/publish-npm.sh
+.claude/
+*/**/CLAUDE.md
+plans/
+
+# Generated / Internal
+.opencode/
+repomix-output.xml
+AGENTS.md
+release-manifest.json
+.repomixignore
+CLAUDE.md
