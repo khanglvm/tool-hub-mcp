@@ -1,6 +1,6 @@
 {
     "name": "@khanglvm/tool-hub-mcp",
-    "version": "1.1.2",
+    "version": "1.1.3",
     "description": "Serverless MCP Aggregator - Reduce AI context token consumption by 38%",
     "bin": {
         "tool-hub-mcp": "./cli.js"
