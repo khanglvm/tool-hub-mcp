@@ -35,13 +35,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/khanglvm/tool-hub-mcp/internal/cli"
-)
-
-// Version information (set via ldflags during build)
-var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
+	"github.com/khanglvm/tool-hub-mcp/internal/version"
 )
 
 func main() {
@@ -57,11 +51,12 @@ it provides a single unified MCP endpoint with 2 meta-tools:
   • hub_execute  - Execute a tool from a server
 
 Token savings: 38% reduction (2 meta-tools vs 100+ individual tools)`,
-		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date),
+		Version: version.GetVersion(),
 	}
 
 	// Add subcommands
 	rootCmd.AddCommand(cli.NewSetupCmd())
+	rootCmd.AddCommand(cli.NewVersionCmd())
 	rootCmd.AddCommand(cli.NewServeCmd())
 	rootCmd.AddCommand(cli.NewAddCmd())
 	rootCmd.AddCommand(cli.NewRemoveCmd())

@@ -147,10 +147,29 @@ func runAddInteractive(jsonInput string, noConfirm bool) error {
 	}
 
 	// Add servers
+	addedCount := 0
+	skippedCount := 0
+
 	for name, server := range servers {
 		camelName := config.ToCamelCase(name)
+
+		// Validate server config
+		if err := config.ValidateServer(camelName, server); err != nil {
+			fmt.Printf("  ⚠️  Skipping %s: %v\n", camelName, err)
+			skippedCount++
+			continue
+		}
+
+		// Check for duplicate
+		if _, exists := cfg.Servers[camelName]; exists {
+			fmt.Printf("  ⚠️  Server '%s' already exists, skipping\n", camelName)
+			skippedCount++
+			continue
+		}
+
 		server.Source = "manual"
 		cfg.Servers[camelName] = server
+		addedCount++
 	}
 
 	// Save
@@ -163,7 +182,11 @@ func runAddInteractive(jsonInput string, noConfirm bool) error {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	fmt.Printf("\n✓ Added %d server(s) to %s\n", len(servers), configPath)
+	if skippedCount > 0 {
+		fmt.Printf("\n✓ Added %d server(s), skipped %d to %s\n", addedCount, skippedCount, configPath)
+	} else {
+		fmt.Printf("\n✓ Added %d server(s) to %s\n", addedCount, configPath)
+	}
 	return nil
 }
 
@@ -371,6 +394,17 @@ func runAddWithFlags(name, command string, args, envVars []string) error {
 
 	// Transform name to camelCase
 	camelName := config.ToCamelCase(name)
+
+	// Validate server config
+	if err := config.ValidateServer(camelName, server); err != nil {
+		return err
+	}
+
+	// Check for duplicate
+	if _, exists := cfg.Servers[camelName]; exists {
+		return fmt.Errorf("server '%s' already exists", camelName)
+	}
+
 	cfg.Servers[camelName] = server
 
 	// Save config

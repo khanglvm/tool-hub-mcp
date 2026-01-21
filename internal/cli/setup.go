@@ -93,15 +93,40 @@ func runSetup(nonInteractive bool) error {
 	// Merge all configs
 	mergedConfig := config.NewConfig()
 	totalImported := 0
+	skippedCount := 0
+	skipReasons := make(map[string]int)
 
 	for sourceName, result := range foundConfigs {
 		for name, server := range result.Servers {
 			// Transform server name to camelCase
 			camelName := config.ToCamelCase(name)
-			
+
+			// Validation 1: Self-reference check
+			if config.IsSelfReference(server) {
+				skipReasons["self-reference"]++
+				skippedCount++
+				continue
+			}
+
+			// Validation 2: Empty command check
+			if server.Command == "" {
+				fmt.Printf("  ⚠️  Skipping %s: empty command\n", camelName)
+				skipReasons["empty-command"]++
+				skippedCount++
+				continue
+			}
+
+			// Validation 3: Duplicate name check
+			if _, exists := mergedConfig.Servers[camelName]; exists {
+				fmt.Printf("  ⚠️  Server '%s' already exists, skipping\n", camelName)
+				skipReasons["duplicate"]++
+				skippedCount++
+				continue
+			}
+
 			// Add source metadata
 			server.Source = sourceName
-			
+
 			mergedConfig.Servers[camelName] = server
 			totalImported++
 		}
@@ -118,6 +143,15 @@ func runSetup(nonInteractive bool) error {
 	}
 
 	fmt.Printf("✓ Imported %d MCP servers to %s\n", totalImported, configPath)
+
+	// Show skip summary
+	if skippedCount > 0 {
+		fmt.Printf("\nℹ️  Skipped %d servers:\n", skippedCount)
+		for reason, count := range skipReasons {
+			fmt.Printf("   - %s: %d\n", reason, count)
+		}
+	}
+
 	fmt.Println()
 	fmt.Println("Next steps:")
 	fmt.Println("  Add tool-hub-mcp to your AI client:")

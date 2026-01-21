@@ -22,6 +22,7 @@ import (
 	"github.com/khanglvm/tool-hub-mcp/internal/search"
 	"github.com/khanglvm/tool-hub-mcp/internal/spawner"
 	"github.com/khanglvm/tool-hub-mcp/internal/storage"
+	"github.com/khanglvm/tool-hub-mcp/internal/version"
 )
 
 // Server represents the tool-hub-mcp MCP server.
@@ -178,7 +179,7 @@ func (s *Server) handleInitialize(req *MCPRequest) (*MCPResponse, error) {
 			},
 			"serverInfo": map[string]interface{}{
 				"name":    "tool-hub-mcp",
-				"version": "0.1.0",
+				"version": version.Version,
 			},
 		},
 	}, nil
