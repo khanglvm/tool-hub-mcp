@@ -1,6 +1,6 @@
 {
     "name": "@khanglvm/tool-hub-mcp",
-    "version": "1.0.1",
+    "version": "1.1.1",
     "description": "Serverless MCP Aggregator - Reduce AI context token consumption by 38%",
     "bin": {
         "tool-hub-mcp": "./cli.js"
@@ -14,11 +14,11 @@
         "postinstall": "node postinstall.js"
     },
     "optionalDependencies": {
-        "@khanglvm/tool-hub-mcp-darwin-arm64": "1.0.0",
-        "@khanglvm/tool-hub-mcp-darwin-x64": "1.0.0",
-        "@khanglvm/tool-hub-mcp-linux-x64": "1.0.0",
-        "@khanglvm/tool-hub-mcp-linux-arm64": "1.0.0",
-        "@khanglvm/tool-hub-mcp-win32-x64": "1.0.0"
+        "@khanglvm/tool-hub-mcp-darwin-arm64": "1.1.1",
+        "@khanglvm/tool-hub-mcp-darwin-x64": "1.1.1",
+        "@khanglvm/tool-hub-mcp-linux-x64": "1.1.1",
+        "@khanglvm/tool-hub-mcp-linux-arm64": "1.1.1",
+        "@khanglvm/tool-hub-mcp-win32-x64": "1.1.1"
     },
     "keywords": [
         "mcp",
