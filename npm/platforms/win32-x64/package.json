@@ -1,6 +1,6 @@
 {
   "name": "@khanglvm/tool-hub-mcp-win32-x64",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Platform-specific binary for tool-hub-mcp (win32-x64)",
   "os": ["win32"],
   "cpu": ["x64"],

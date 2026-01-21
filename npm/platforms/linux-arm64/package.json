@@ -1,6 +1,6 @@
 {
   "name": "@khanglvm/tool-hub-mcp-linux-arm64",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Platform-specific binary for tool-hub-mcp (linux-arm64)",
   "os": ["linux"],
   "cpu": ["arm64"],
