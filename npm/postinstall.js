@@ -153,6 +153,7 @@ async function main() {
     // Skip if platform binary already installed via optionalDependencies
     if (hasPlatformBinary()) {
         console.log('tool-hub-mcp: Binary found from optionalDependencies ✓');
+        createBinSymlink(BINARY_NAME);
         return;
     }
 
@@ -185,12 +186,54 @@ async function main() {
         }
 
         console.log('tool-hub-mcp: Binary downloaded and installed ✓');
+        createBinSymlink(binaryName);
 
     } catch (error) {
         console.error(`tool-hub-mcp: Failed to download binary: ${error.message}`);
         console.error('You can manually download from: https://github.com/khanglvm/tool-hub-mcp/releases');
         // Don't fail the install - user can still manually download
         process.exit(0);
+    }
+}
+
+/**
+ * Create .bin symlink for the CLI wrapper.
+ * This is needed because npm sometimes doesn't create symlinks properly
+ * when packages are installed via npx or when optionalDependencies are used.
+ */
+function createBinSymlink(binaryName) {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+
+        // Find the .bin directory (usually at node_modules/.bin)
+        let binDir = null;
+        const searchLevels = ['node_modules/.bin', '../.bin', '../../.bin', '.bin'];
+
+        for (const dir of searchLevels) {
+            const testPath = path.join(__dirname, dir);
+            if (fs.existsSync(testPath)) {
+                binDir = testPath;
+                break;
+            }
+        }
+
+        if (!binDir) {
+            // .bin directory doesn't exist, might be in a global install
+            return;
+        }
+
+        const linkPath = path.join(binDir, binaryName);
+        const targetPath = path.join(__dirname, 'cli.js');
+
+        // Create symlink if it doesn't exist
+        if (!fs.existsSync(linkPath)) {
+            fs.symlinkSync(targetPath, linkPath);
+            console.log('tool-hub-mcp: Created .bin symlink ✓');
+        }
+    } catch (err) {
+        // Log error but don't fail
+        console.log('tool-hub-mcp: Could not create .bin symlink:', err.message);
     }
 }
 
