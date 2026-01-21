@@ -1,12 +1,9 @@
 /*
 Package mcp implements the MCP server that exposes meta-tools.
 
-The server uses stdio transport and exposes 5 meta-tools:
-  - hub_list: List all registered MCP servers
-  - hub_discover: Get tool definitions from a specific server
-  - hub_search: Semantic search for tools across all servers
-  - hub_execute: Execute a tool from a specific server
-  - hub_help: Get detailed help/schema for a tool
+The server uses stdio transport and exposes 2 meta-tools:
+  - hub_search: Semantic search for tools across all servers (with discovery)
+  - hub_execute: Execute a tool from a specific server (with learning)
 */
 package mcp
 
@@ -14,17 +11,26 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/khanglvm/tool-hub-mcp/internal/config"
+	"github.com/khanglvm/tool-hub-mcp/internal/learning"
+	"github.com/khanglvm/tool-hub-mcp/internal/search"
 	"github.com/khanglvm/tool-hub-mcp/internal/spawner"
+	"github.com/khanglvm/tool-hub-mcp/internal/storage"
 )
 
 // Server represents the tool-hub-mcp MCP server.
 type Server struct {
 	config  *config.Config
 	spawner *spawner.Pool
+	indexer *search.Indexer
+	storage *storage.SQLiteStorage
+	tracker *learning.Tracker
 }
 
 // NewServer creates a new MCP server with the given configuration.
@@ -34,10 +40,62 @@ func NewServer(cfg *config.Config) *Server {
 		poolSize = cfg.Settings.ProcessPoolSize
 	}
 
+	// Create search indexer
+	indexer, err := search.NewIndexer()
+	if err != nil {
+		log.Printf("Warning: failed to create search indexer: %v", err)
+		indexer = nil
+	}
+
+	// Create storage layer
+	str := storage.NewStorage()
+	if err := str.Init(); err != nil {
+		log.Printf("Warning: failed to initialize storage: %v", err)
+		// Storage is optional, continue without it
+	}
+
+	// Create learning tracker
+	var tracker *learning.Tracker
+	if str != nil {
+		tracker = learning.NewTracker(str)
+	}
+
 	return &Server{
 		config:  cfg,
 		spawner: spawner.NewPool(poolSize),
+		indexer: indexer,
+		storage: str,
+		tracker: tracker,
 	}
+}
+
+// IndexTools indexes all tools from all servers for search.
+func (s *Server) IndexTools() error {
+	if s.indexer == nil {
+		return fmt.Errorf("search indexer not available")
+	}
+
+	// Index each server's tools
+	for serverName, serverCfg := range s.config.Servers {
+		tools, err := s.spawner.GetTools(serverName, serverCfg)
+		if err != nil {
+			log.Printf("Warning: failed to get tools from %s: %v", serverName, err)
+			continue
+		}
+
+		if err := s.indexer.IndexServer(serverName, tools); err != nil {
+			log.Printf("Warning: failed to index tools from %s: %v", serverName, err)
+		}
+
+		log.Printf("Indexed %d tools from %s", len(tools), serverName)
+	}
+
+	// Log total indexed count
+	if count, err := s.indexer.Count(); err == nil {
+		log.Printf("Total tools indexed: %d", count)
+	}
+
+	return nil
 }
 
 // Run starts the MCP server using stdio transport.
@@ -130,70 +188,46 @@ func (s *Server) handleInitialize(req *MCPRequest) (*MCPResponse, error) {
 func (s *Server) handleToolsList(req *MCPRequest) (*MCPResponse, error) {
 	// Build dynamic server list for AI context (runtime, not hardcoded)
 	serverList := s.getServerNames()
-	
+
 	tools := []map[string]interface{}{
 		{
-			"name": "hub_list",
-			"description": `Gateway to external tools and integrations. Lists all available MCP servers.
-
-USE THIS TOOL FIRST WHEN:
-• User asks about available tools, integrations, or capabilities
-• User wants to interact with external services, APIs, or data sources  
-• You need to discover what external tools are available before taking action
-• User mentions ANY external service, platform, or integration by name
-
-IMPORTANT: This tool hub does NOT know what tools are available until you call hub_list.
-You MUST call this tool first to discover currently configured servers and their capabilities.
-
-Returns: List of registered MCP server names that you can then explore with hub_discover.`,
-			"inputSchema": map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			},
-		},
-		{
-			"name": "hub_discover",
-			"description": fmt.Sprintf(`Explore tools from a specific external integration. Shows available operations and required parameters.
-
-USE THIS TOOL WHEN:
-• You have called hub_list and know which server to explore
-• You need to see what tools/operations a specific server provides
-• You need parameter schemas before calling hub_execute
-
-CURRENTLY REGISTERED: %s
-
-Returns: List of tools with descriptions and parameter schemas from the specified server.`, serverList),
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"server": map[string]interface{}{
-						"type":        "string",
-						"description": "Name of the server to explore",
-						"enum":        s.getServerNamesList(),
-					},
-				},
-				"required": []string{"server"},
-			},
-		},
-		{
 			"name": "hub_search",
-			"description": `Find the right tool across all integrations using natural language.
+			"description": fmt.Sprintf(`Gateway to external tools and integrations. Find the right tool using natural language.
 
 USE THIS TOOL WHEN:
 • User describes what they want to do but doesn't name a specific tool
-• You're unsure which server has the capability the user needs
-• User asks to "find", "search for", or "look for" a capability
+• User asks about available tools, integrations, or capabilities
+• User wants to interact with external services, APIs, or data sources
+• User mentions ANY external service, platform, or integration by name
+• You need to discover tools without knowing server names
 
-HOW IT WORKS: Searches registered server names for matches to your query.
-For best results, include server names or related keywords in your query.
+HOW IT WORKS: Uses semantic search to find relevant tools across all servers.
+Returns rich response with tool name, description, inputSchema, and expected response shape.
 
-Returns: Matching servers from those currently registered. Use hub_discover to see their tools.`,
+EXAMPLES:
+• "create jira ticket" → finds Jira create_issue tool with full schema
+• "take screenshot" → finds screenshot tools with parameters
+• "all tools" or "tools" → shows all tools from all servers
+• "jira" → shows all Jira tools
+
+CURRENTLY REGISTERED: %s
+
+Returns: JSON with searchId (for tracking), results array with tool details (name, description, inputSchema, expectedResponse), server, score, matchReason.`, serverList),
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"query": map[string]interface{}{
 						"type":        "string",
-						"description": "What you want to do, or server name to find",
+						"description": "What you want to do in plain English",
+					},
+					"server": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional: filter to specific server",
+						"enum":        s.getServerNamesList(),
+					},
+					"limit": map[string]interface{}{
+						"type":        "number",
+						"description": "Optional: max results (default 10)",
 					},
 				},
 				"required": []string{"query"},
@@ -204,13 +238,11 @@ Returns: Matching servers from those currently registered. Use hub_discover to s
 			"description": fmt.Sprintf(`Run a tool from an external integration.
 
 USE THIS TOOL WHEN:
-• You've discovered available tools (via hub_discover) and know which one to run
+• You've discovered available tools (via hub_search) and know which one to run
 • You have the tool name and required arguments ready
 
-WORKFLOW:
-1. hub_list() → see available servers
-2. hub_discover(server) → see tools and parameters  
-3. hub_execute(server, tool, arguments) → run the tool
+LEARNING: Optionally pass searchId from hub_search to improve tool recommendations.
+This helps the system learn which tools work best for specific queries.
 
 CURRENTLY REGISTERED: %s`, serverList),
 			"inputSchema": map[string]interface{}{
@@ -223,36 +255,15 @@ CURRENTLY REGISTERED: %s`, serverList),
 					},
 					"tool": map[string]interface{}{
 						"type":        "string",
-						"description": "Tool name (from hub_discover)",
+						"description": "Tool name (from hub_search)",
 					},
 					"arguments": map[string]interface{}{
 						"type":        "object",
-						"description": "Tool arguments (schema from hub_discover)",
+						"description": "Tool arguments (schema from hub_search)",
 					},
-				},
-				"required": []string{"server", "tool"},
-			},
-		},
-		{
-			"name": "hub_help",
-			"description": `Get detailed parameter schema for a specific tool.
-
-USE THIS TOOL WHEN:
-• You need the exact parameter format before calling hub_execute
-• Tool execution failed due to incorrect arguments
-
-Returns: Full JSON schema with types, descriptions, and required fields.`,
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"server": map[string]interface{}{
+					"searchId": map[string]interface{}{
 						"type":        "string",
-						"description": "Server name",
-						"enum":        s.getServerNamesList(),
-					},
-					"tool": map[string]interface{}{
-						"type":        "string",
-						"description": "Tool name",
+						"description": "Optional: search session ID from hub_search to link this execution for learning",
 					},
 				},
 				"required": []string{"server", "tool"},
@@ -267,16 +278,6 @@ Returns: Full JSON schema with types, descriptions, and required fields.`,
 			"tools": tools,
 		},
 	}, nil
-}
-
-// buildServerCatalog creates a formatted list of servers.
-// Note: No hardcoded descriptions - descriptions come from the servers themselves via hub_discover.
-func (s *Server) buildServerCatalog() string {
-	catalog := ""
-	for name := range s.config.Servers {
-		catalog += fmt.Sprintf("  • %s\n", name)
-	}
-	return catalog
 }
 
 // getServerNames returns a comma-separated list of server names.
@@ -319,23 +320,18 @@ func (s *Server) handleToolsCall(req *MCPRequest) (*MCPResponse, error) {
 	var err error
 
 	switch params.Name {
-	case "hub_list":
-		result, err = s.execHubList()
-	case "hub_discover":
-		serverName, _ := params.Arguments["server"].(string)
-		result, err = s.execHubDiscover(serverName)
 	case "hub_search":
 		query, _ := params.Arguments["query"].(string)
-		result, err = s.execHubSearch(query)
+		server, _ := params.Arguments["server"].(string)
+		limitFloat, _ := params.Arguments["limit"].(float64)
+		limit := int(limitFloat)
+		result, err = s.execHubSearch(query, server, limit)
 	case "hub_execute":
 		serverName, _ := params.Arguments["server"].(string)
 		toolName, _ := params.Arguments["tool"].(string)
 		args, _ := params.Arguments["arguments"].(map[string]interface{})
-		result, err = s.execHubExecute(serverName, toolName, args)
-	case "hub_help":
-		serverName, _ := params.Arguments["server"].(string)
-		toolName, _ := params.Arguments["tool"].(string)
-		result, err = s.execHubHelp(serverName, toolName)
+		searchId, _ := params.Arguments["searchId"].(string)
+		result, err = s.execHubExecute(serverName, toolName, args, searchId)
 	default:
 		return &MCPResponse{
 			JSONRPC: "2.0",
@@ -366,45 +362,142 @@ func (s *Server) handleToolsCall(req *MCPRequest) (*MCPResponse, error) {
 	}, nil
 }
 
-// execHubList returns a list of registered servers.
-func (s *Server) execHubList() (string, error) {
-	if len(s.config.Servers) == 0 {
-		return "No servers registered. Run 'tool-hub-mcp setup' to import configurations.", nil
+// execHubSearch searches for tools across all servers using BM25 semantic search.
+// Returns rich JSON response with searchId, tool details, and schemas.
+func (s *Server) execHubSearch(query, serverFilter string, limit int) (string, error) {
+	// Generate unique searchId for tracking
+	searchID := uuid.New().String()
+
+	// Default limit if not specified
+	if limit <= 0 {
+		limit = 10
 	}
 
-	var result string
-	result = fmt.Sprintf("Registered MCP Servers (%d):\n", len(s.config.Servers))
-	for name, server := range s.config.Servers {
-		result += fmt.Sprintf("  • %s (source: %s)\n", name, server.Source)
-	}
-	return result, nil
-}
-
-// execHubDiscover returns tools from a specific server.
-func (s *Server) execHubDiscover(serverName string) (string, error) {
-	server, exists := s.config.Servers[serverName]
-	if !exists {
-		return "", fmt.Errorf("server '%s' not found", serverName)
+	// If indexer is not available, fall back to simple server name matching
+	if s.indexer == nil {
+		return s.execHubSearchFallback(query, searchID)
 	}
 
-	// Spawn the server and get its tools
-	tools, err := s.spawner.GetTools(serverName, server)
+	var results []search.SearchResult
+	var err error
+
+	// Perform search with optional server filter
+	if serverFilter != "" {
+		// Search within specific server
+		results, err = s.indexer.SearchByServer(query, serverFilter, limit)
+	} else {
+		// Search across all servers
+		results, err = s.indexer.SearchBM25(query, limit)
+	}
+
 	if err != nil {
-		return "", fmt.Errorf("failed to discover tools: %w", err)
+		return "", fmt.Errorf("search failed: %w", err)
 	}
 
-	result := fmt.Sprintf("Tools from '%s':\n", serverName)
-	for _, tool := range tools {
-		result += fmt.Sprintf("  • %s: %s\n", tool.Name, tool.Description)
+	// Store search in history for learning
+	if s.storage != nil {
+		searchRecord := storage.SearchRecord{
+			SearchID:     searchID,
+			QueryHash:    storage.HashQuery(query),
+			Timestamp:    time.Now(),
+			ResultsCount: len(results),
+		}
+		if err := s.storage.RecordSearch(searchRecord); err != nil {
+			log.Printf("Warning: failed to record search: %v", err)
+		}
 	}
-	return result, nil
+
+	// Build rich response
+	response := map[string]interface{}{
+		"searchId":     searchID,
+		"query":        query,
+		"totalResults": len(results),
+		"results":      s.formatSearchResults(results),
+	}
+
+	// Convert to JSON
+	jsonBytes, err := json.MarshalIndent(response, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal response: %w", err)
+	}
+
+	return string(jsonBytes), nil
 }
 
-// execHubSearch searches for tools across all servers by matching against registered server names.
-// No hardcoded keyword mappings - matches dynamically against actual configured servers.
-func (s *Server) execHubSearch(query string) (string, error) {
+// formatSearchResults converts search results to rich format with tool details.
+func (s *Server) formatSearchResults(results []search.SearchResult) []map[string]interface{} {
+	formatted := make([]map[string]interface{}, 0, len(results))
+
+	for _, result := range results {
+		// Generate expected response description from schema
+		expectedResponse := s.generateExpectedResponse(result.InputSchema)
+
+		toolDetail := map[string]interface{}{
+			"tool": map[string]interface{}{
+				"name":             result.ToolName,
+				"description":      result.Description,
+				"inputSchema":      result.InputSchema,
+				"expectedResponse": expectedResponse,
+			},
+			"server":      result.ServerName,
+			"score":       result.Score,
+			"matchReason": s.generateMatchReason(result),
+		}
+
+		formatted = append(formatted, toolDetail)
+	}
+
+	return formatted
+}
+
+// generateExpectedResponse creates a human-readable description of the expected response.
+func (s *Server) generateExpectedResponse(schema interface{}) string {
+	if schema == nil {
+		return "Returns tool execution result"
+	}
+
+	// Parse schema as map
+	schemaMap, ok := schema.(map[string]interface{})
+	if !ok {
+		return "Returns tool execution result"
+	}
+
+	// Try to extract output description
+	// This is a simple heuristic - in production, you'd parse the schema more carefully
+	var responseTypes []string
+
+	if props, ok := schemaMap["properties"].(map[string]interface{}); ok {
+		for propName, propDef := range props {
+			if propDefMap, ok := propDef.(map[string]interface{}); ok {
+				if propType, ok := propDefMap["type"].(string); ok {
+					responseTypes = append(responseTypes, fmt.Sprintf("%s (%s)", propName, propType))
+				}
+			}
+		}
+	}
+
+	if len(responseTypes) > 0 {
+		return fmt.Sprintf("Returns: %s", strings.Join(responseTypes, ", "))
+	}
+
+	return "Returns tool execution result"
+}
+
+// generateMatchReason creates a human-readable explanation of why this tool matched.
+func (s *Server) generateMatchReason(result search.SearchResult) string {
+	if result.Score > 5.0 {
+		return "Strong keyword match in tool name or description"
+	} else if result.Score > 2.0 {
+		return "Partial keyword match"
+	} else {
+		return "Low relevance match"
+	}
+}
+
+// execHubSearchFallback is the fallback when indexer is not available.
+func (s *Server) execHubSearchFallback(query, searchID string) (string, error) {
 	query = strings.ToLower(query)
-	
+
 	// Match against actual registered server names (dynamic, no hardcoding)
 	matchedServers := []string{}
 	for name := range s.config.Servers {
@@ -422,50 +515,71 @@ func (s *Server) execHubSearch(query string) (string, error) {
 		for name := range s.config.Servers {
 			result.WriteString(fmt.Sprintf("  • %s\n", name))
 		}
-		result.WriteString("\nTry hub_discover(server) to see tools from a specific server.")
+		result.WriteString("\nTry hub_search with a server name to see tools from that server.")
 		return result.String(), nil
 	}
-	
+
 	// Return matched servers with recommendation
 	var result strings.Builder
 	result.WriteString(fmt.Sprintf("For '%s', matching servers:\n\n", query))
-	
+
 	for _, server := range matchedServers {
 		result.WriteString(fmt.Sprintf("  • %s\n", server))
 	}
-	
-	result.WriteString("\nNext step: Call hub_discover(server) to see available tools, then hub_execute to run them.")
+
+	result.WriteString("\nNext step: Use hub_search to find specific tools, then hub_execute to run them.")
 	return result.String(), nil
 }
 
 // execHubExecute executes a tool from a server.
-func (s *Server) execHubExecute(serverName, toolName string, args map[string]interface{}) (string, error) {
+func (s *Server) execHubExecute(serverName, toolName string, args map[string]interface{}, searchId string) (string, error) {
 	server, exists := s.config.Servers[serverName]
 	if !exists {
 		return "", fmt.Errorf("server '%s' not found", serverName)
 	}
 
+	// Execute tool
 	result, err := s.spawner.ExecuteTool(serverName, server, toolName, args)
 	if err != nil {
+		// Track failed execution
+		s.trackUsage(toolName, searchId, false)
 		return "", fmt.Errorf("failed to execute tool: %w", err)
 	}
+
+	// Track successful execution
+	s.trackUsage(toolName, searchId, true)
 
 	return result, nil
 }
 
-// execHubHelp returns help for a specific tool.
-func (s *Server) execHubHelp(serverName, toolName string) (string, error) {
-	server, exists := s.config.Servers[serverName]
-	if !exists {
-		return "", fmt.Errorf("server '%s' not found", serverName)
+// trackUsage records tool usage for learning (non-blocking).
+func (s *Server) trackUsage(toolName, searchId string, success bool) {
+	if s.tracker == nil {
+		return
 	}
 
-	help, err := s.spawner.GetToolHelp(serverName, server, toolName)
-	if err != nil {
-		return "", fmt.Errorf("failed to get help: %w", err)
+	// Hash searchId for privacy
+	hashedSearchId := ""
+	if searchId != "" {
+		hashedSearchId = storage.HashQuery(searchId)
 	}
 
-	return help, nil
+	// Create usage event
+	event := learning.UsageEvent{
+		ToolName:    toolName,
+		ContextHash: hashedSearchId,
+		Timestamp:   time.Now(),
+		Selected:    true,
+		Rating:      0,
+	}
+
+	// Non-blocking track
+	s.tracker.Track(event)
+
+	// Log if tracking fails (tracker already handles errors internally)
+	if s.tracker.IsEnabled() && len(hashedSearchId) > 0 {
+		log.Printf("Tracked tool usage: %s (searchId: %s, success: %v)", toolName, searchId, success)
+	}
 }
 
 // sendResponse writes a JSON-RPC response to stdout.

@@ -48,18 +48,15 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:   "tool-hub-mcp",
 		Short: "Serverless MCP aggregator - reduce context tokens by 96%",
-		Long: `tool-hub-mcp is a serverless MCP (Model Context Protocol) aggregator 
+		Long: `tool-hub-mcp is a serverless MCP (Model Context Protocol) aggregator
 that solves the context token consumption problem when using multiple MCP servers.
 
 Instead of exposing dozens of individual MCP tools (consuming 60k+ tokens),
-it provides a single unified MCP endpoint with 5 meta-tools:
-  • hub_list     - List all registered servers
-  • hub_discover - Get tools from a specific server
-  • hub_search   - Semantic search for tools
+it provides a single unified MCP endpoint with 2 meta-tools:
+  • hub_search   - Semantic search for tools across all servers
   • hub_execute  - Execute a tool from a server
-  • hub_help     - Get detailed help for a tool
 
-Token savings: 96%+ reduction (5 meta-tools vs 100+ individual tools)`,
+Token savings: 38% reduction (2 meta-tools vs 100+ individual tools)`,
 		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date),
 	}
 
@@ -75,6 +72,9 @@ Token savings: 96%+ reduction (5 meta-tools vs 100+ individual tools)`,
 	benchmarkCmd := cli.NewBenchmarkCmd()
 	benchmarkCmd.AddCommand(cli.NewSpeedBenchmarkCmd())
 	rootCmd.AddCommand(benchmarkCmd)
+
+	// Learning command group
+	rootCmd.AddCommand(cli.NewLearningCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
