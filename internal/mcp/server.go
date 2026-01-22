@@ -1,9 +1,10 @@
 /*
 Package mcp implements the MCP server that exposes meta-tools.
 
-The server uses stdio transport and exposes 2 meta-tools:
+The server uses stdio transport and exposes 3 meta-tools:
   - hub_search: Semantic search for tools across all servers (with discovery)
   - hub_execute: Execute a tool from a specific server (with learning)
+  - hub_manage: Add or remove MCP servers from configuration
 */
 package mcp
 
@@ -29,12 +30,13 @@ import (
 
 // Server represents the tool-hub-mcp MCP server.
 type Server struct {
-	config   *config.Config
-	configMu sync.RWMutex
-	spawner  *spawner.Pool
-	indexer  *search.Indexer
-	storage  *storage.SQLiteStorage
-	tracker  *learning.Tracker
+	config        *config.Config
+	configMu      sync.RWMutex
+	spawner       *spawner.Pool
+	indexer       *search.Indexer
+	storage       *storage.SQLiteStorage
+	tracker       *learning.Tracker
+	failedServers map[string]string // serverName → error message
 
 	// Context for background goroutines (update checker, discovery)
 	ctx    context.Context
@@ -75,13 +77,14 @@ func NewServer(cfg *config.Config) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Server{
-		config:  cfg,
-		spawner: spawner.NewPool(poolSize),
-		indexer: indexer,
-		storage: str,
-		tracker: tracker,
-		ctx:     ctx,
-		cancel:  cancel,
+		config:        cfg,
+		spawner:       spawner.NewPool(poolSize),
+		indexer:       indexer,
+		storage:       str,
+		tracker:       tracker,
+		failedServers: make(map[string]string),
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 }
 
@@ -154,16 +157,24 @@ func (s *Server) indexToolsUnsafe() error {
 		return fmt.Errorf("search indexer not available")
 	}
 
+	// Clear previous failed servers (fresh state each reindex)
+	s.failedServers = make(map[string]string)
+
 	// Index each server's tools
 	for serverName, serverCfg := range s.config.Servers {
 		tools, err := s.spawner.GetTools(serverName, serverCfg)
 		if err != nil {
+			// Capture error for this server
+			s.failedServers[serverName] = err.Error()
 			log.Printf("Warning: failed to get tools from %s: %v", serverName, err)
 			continue
 		}
 
 		if err := s.indexer.IndexServer(serverName, tools); err != nil {
+			// Capture indexing error
+			s.failedServers[serverName] = fmt.Sprintf("indexing failed: %v", err)
 			log.Printf("Warning: failed to index tools from %s: %v", serverName, err)
+			continue
 		}
 
 		log.Printf("Indexed %d tools from %s", len(tools), serverName)
@@ -172,6 +183,11 @@ func (s *Server) indexToolsUnsafe() error {
 	// Log total indexed count
 	if count, err := s.indexer.Count(); err == nil {
 		log.Printf("Total tools indexed: %d", count)
+	}
+
+	// Log summary of failed servers
+	if len(s.failedServers) > 0 {
+		log.Printf("Failed servers: %d", len(s.failedServers))
 	}
 
 	return nil
@@ -405,6 +421,68 @@ CURRENTLY REGISTERED: %s`, serverList),
 				"required": []string{"server", "tool"},
 			},
 		},
+		{
+			"name": "hub_manage",
+			"description": `Manage MCP servers by adding or removing them from configuration.
+
+USE THIS TOOL when:
+• User asks to "add a server" or "register an MCP server"
+• User asks to "remove a server" or "unregister a server"
+• User provides server configuration details
+
+OPERATIONS:
+1. add - Register a new MCP server
+   - Required: name, command, args
+   - Optional: env (environment variables)
+
+2. remove - Unregister an MCP server
+   - Required: name
+
+IMPORTANT:
+• Server names will be normalized to camelCase
+• Config is validated before saving
+• Changes trigger automatic reindexing
+• Backup created before config modification
+
+EXAMPLES:
+• Add: {"operation": "add", "name": "jira", "command": "npx", "args": ["-y", "@lvmk/jira-mcp"], "env": {"API_KEY": "..."}}
+• Remove: {"operation": "remove", "name": "jira"}
+
+CURRENTLY REGISTERED: ` + serverList,
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"operation": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"add", "remove"},
+						"description": "Operation to perform (add or remove)",
+					},
+					"name": map[string]interface{}{
+						"type":        "string",
+						"description": "Server name (will be normalized to camelCase)",
+					},
+					"command": map[string]interface{}{
+						"type":        "string",
+						"description": "Command to execute (required for add operation)",
+					},
+					"args": map[string]interface{}{
+						"type": "array",
+						"items": map[string]interface{}{
+							"type": "string",
+						},
+						"description": "Command arguments (required for add operation)",
+					},
+					"env": map[string]interface{}{
+						"type": "object",
+						"additionalProperties": map[string]interface{}{
+							"type": "string",
+						},
+						"description": "Environment variables (optional for add operation)",
+					},
+				},
+				"required": []string{"operation", "name"},
+			},
+		},
 	}
 
 	return &MCPResponse{
@@ -447,6 +525,26 @@ func (s *Server) getServerNamesList() []string {
 	return names
 }
 
+// getFailedServers returns a list of failed servers with error messages.
+// Thread-safe: acquires read lock.
+func (s *Server) getFailedServers() []map[string]interface{} {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+
+	if len(s.failedServers) == 0 {
+		return nil
+	}
+
+	result := make([]map[string]interface{}, 0, len(s.failedServers))
+	for name, errorMsg := range s.failedServers {
+		result = append(result, map[string]interface{}{
+			"server": name,
+			"error":  errorMsg,
+		})
+	}
+	return result
+}
+
 // handleToolsCall handles tool execution requests.
 func (s *Server) handleToolsCall(req *MCPRequest) (*MCPResponse, error) {
 	var params struct {
@@ -474,6 +572,34 @@ func (s *Server) handleToolsCall(req *MCPRequest) (*MCPResponse, error) {
 		args, _ := params.Arguments["arguments"].(map[string]interface{})
 		searchId, _ := params.Arguments["searchId"].(string)
 		result, err = s.execHubExecute(serverName, toolName, args, searchId)
+	case "hub_manage":
+		operation, _ := params.Arguments["operation"].(string)
+		name, _ := params.Arguments["name"].(string)
+		command, _ := params.Arguments["command"].(string)
+
+		// Parse args array
+		var args []string
+		if argsInterface, ok := params.Arguments["args"].([]interface{}); ok {
+			args = make([]string, len(argsInterface))
+			for i, v := range argsInterface {
+				if str, ok := v.(string); ok {
+					args[i] = str
+				}
+			}
+		}
+
+		// Parse env map
+		var env map[string]string
+		if envInterface, ok := params.Arguments["env"].(map[string]interface{}); ok {
+			env = make(map[string]string)
+			for k, v := range envInterface {
+				if str, ok := v.(string); ok {
+					env[k] = str
+				}
+			}
+		}
+
+		result, err = s.execHubManage(operation, name, command, args, env)
 	default:
 		return &MCPResponse{
 			JSONRPC: "2.0",
@@ -505,7 +631,7 @@ func (s *Server) handleToolsCall(req *MCPRequest) (*MCPResponse, error) {
 }
 
 // execHubSearch searches for tools across all servers using BM25 semantic search.
-// Returns rich JSON response with searchId, tool details, and schemas.
+// Returns rich JSON response with searchId, tool details, schemas, and failed servers.
 func (s *Server) execHubSearch(query, serverFilter string, limit int) (string, error) {
 	// Generate unique searchId for tracking
 	searchID := uuid.New().String()
@@ -555,6 +681,14 @@ func (s *Server) execHubSearch(query, serverFilter string, limit int) (string, e
 		"query":        query,
 		"totalResults": len(results),
 		"results":      s.formatSearchResults(results),
+	}
+
+	// Add failed servers (always include for consistent schema)
+	failedServers := s.getFailedServers()
+	if failedServers != nil && len(failedServers) > 0 {
+		response["failedServers"] = failedServers
+	} else {
+		response["failedServers"] = []map[string]interface{}{}
 	}
 
 	// Convert to JSON
@@ -653,26 +787,37 @@ func (s *Server) execHubSearchFallback(query, searchID string) (string, error) {
 		}
 	}
 
+	var result strings.Builder
+
 	if len(matchedServers) == 0 {
 		// No match, return all servers as suggestions
-		var result strings.Builder
 		result.WriteString(fmt.Sprintf("No direct match for '%s'. Available servers:\n\n", query))
 		for name := range s.config.Servers {
 			result.WriteString(fmt.Sprintf("  • %s\n", name))
 		}
 		result.WriteString("\nTry hub_search with a server name to see tools from that server.")
-		return result.String(), nil
+	} else {
+		// Return matched servers with recommendation
+		result.WriteString(fmt.Sprintf("For '%s', matching servers:\n\n", query))
+
+		for _, server := range matchedServers {
+			result.WriteString(fmt.Sprintf("  • %s\n", server))
+		}
+
+		result.WriteString("\nNext step: Use hub_search to find specific tools, then hub_execute to run them.")
 	}
 
-	// Return matched servers with recommendation
-	var result strings.Builder
-	result.WriteString(fmt.Sprintf("For '%s', matching servers:\n\n", query))
-
-	for _, server := range matchedServers {
-		result.WriteString(fmt.Sprintf("  • %s\n", server))
+	// Add failed servers info
+	failedServers := s.getFailedServers()
+	if len(failedServers) > 0 {
+		result.WriteString("\n\n⚠️  Failed Servers:\n")
+		for _, fs := range failedServers {
+			serverName := fs["server"].(string)
+			errorMsg := fs["error"].(string)
+			result.WriteString(fmt.Sprintf("  • %s: %s\n", serverName, errorMsg))
+		}
 	}
 
-	result.WriteString("\nNext step: Use hub_search to find specific tools, then hub_execute to run them.")
 	return result.String(), nil
 }
 
@@ -728,6 +873,137 @@ func (s *Server) trackUsage(toolName, searchId string, success bool) {
 	if s.tracker.IsEnabled() && len(hashedSearchId) > 0 {
 		log.Printf("Tracked tool usage: %s (searchId: %s, success: %v)", toolName, searchId, success)
 	}
+}
+
+// execHubManage handles server management operations (add/remove).
+func (s *Server) execHubManage(operation, name, command string, args []string, env map[string]string) (string, error) {
+	// Acquire write lock for config modification
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+
+	// Validate operation
+	if operation != "add" && operation != "remove" {
+		return "", fmt.Errorf("invalid operation '%s'. Must be 'add' or 'remove'", operation)
+	}
+
+	// Validate name
+	if strings.TrimSpace(name) == "" {
+		return "", fmt.Errorf("server name cannot be empty")
+	}
+
+	name = strings.TrimSpace(name)
+
+	// Handle operations
+	switch operation {
+	case "add":
+		return s.addServer(name, command, args, env)
+	case "remove":
+		return s.removeServer(name)
+	default:
+		return "", fmt.Errorf("unsupported operation: %s", operation)
+	}
+}
+
+// addServer adds a new MCP server to the configuration.
+func (s *Server) addServer(name, command string, args []string, env map[string]string) (string, error) {
+	// Validate command
+	if strings.TrimSpace(command) == "" {
+		return "", fmt.Errorf("command cannot be empty for add operation")
+	}
+
+	// Validate args
+	if args == nil {
+		args = []string{} // Default to empty array
+	}
+
+	// Check if server already exists
+	if _, exists := s.config.Servers[name]; exists {
+		return "", fmt.Errorf("server '%s' already exists. Use hub_execute to list servers or remove first", name)
+	}
+
+	// Create server config
+	serverCfg := &config.ServerConfig{
+		Command: strings.TrimSpace(command),
+		Args:    args,
+		Env:     env,
+		Source:  "hub_manage",
+	}
+
+	// Add to config
+	s.config.Servers[name] = serverCfg
+
+	// Save config atomically
+	configPath, err := config.GetDefaultConfigPath()
+	if err != nil {
+		// Rollback
+		delete(s.config.Servers, name)
+		return "", fmt.Errorf("failed to get config path: %w", err)
+	}
+
+	if err := config.Save(s.config, configPath); err != nil {
+		// Rollback
+		delete(s.config.Servers, name)
+		return "", fmt.Errorf("failed to save config: %w. Config rolled back", err)
+	}
+
+	// Trigger reindexing (must hold lock)
+	if s.indexer != nil {
+		if err := s.indexToolsUnsafe(); err != nil {
+			log.Printf("Warning: failed to reindex after adding server '%s': %v", name, err)
+		}
+	}
+
+	return fmt.Sprintf("✓ Server '%s' added successfully.\n\nCommand: %s\nArgs: %v\n\nConfig saved to: %s\nIndexing triggered.",
+		name, command, args, configPath), nil
+}
+
+// removeServer removes an MCP server from the configuration.
+func (s *Server) removeServer(name string) (string, error) {
+	// Check if server exists
+	if _, exists := s.config.Servers[name]; !exists {
+		availableServers := make([]string, 0, len(s.config.Servers))
+		for serverName := range s.config.Servers {
+			availableServers = append(availableServers, serverName)
+		}
+		return "", fmt.Errorf("server '%s' not found. Available servers: %v", name, availableServers)
+	}
+
+	// Backup server config for potential rollback
+	backupCfg := s.config.Servers[name]
+
+	// Remove from config
+	delete(s.config.Servers, name)
+
+	// Save config atomically
+	configPath, err := config.GetDefaultConfigPath()
+	if err != nil {
+		// Rollback
+		s.config.Servers[name] = backupCfg
+		return "", fmt.Errorf("failed to get config path: %w", err)
+	}
+
+	if err := config.Save(s.config, configPath); err != nil {
+		// Rollback
+		s.config.Servers[name] = backupCfg
+		return "", fmt.Errorf("failed to save config: %w. Config rolled back", err)
+	}
+
+	// Remove from indexer if available
+	if s.indexer != nil {
+		if err := s.indexer.RemoveServer(name); err != nil {
+			log.Printf("Warning: failed to remove server '%s' from index: %v", name, err)
+		}
+	}
+
+	// Trigger reindexing (must hold lock)
+	if s.indexer != nil {
+		if err := s.indexToolsUnsafe(); err != nil {
+			log.Printf("Warning: failed to reindex after removing server '%s': %v", name, err)
+		}
+	}
+
+	return fmt.Sprintf("✓ Server '%s' removed successfully.\n\nConfig saved to: %s\nIndexing triggered.",
+		name, configPath), nil
 }
 
 // sendResponse writes a JSON-RPC response to stdout.
