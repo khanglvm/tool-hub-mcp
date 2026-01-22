@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -56,31 +55,24 @@ func runServe() error {
 	// Create MCP server
 	server := mcp.NewServer(cfg)
 
-	// Track if setup is needed for one-time execution
-	setupNeeded := len(cfg.Servers) == 0
-	var setupOnce sync.Once
+	// Run one-time setup if no servers configured (blocking)
+	if len(cfg.Servers) == 0 {
+		log.Printf("No servers configured, running setup...")
+		count, err := RunSetupNonInteractive()
+		if err != nil {
+			log.Printf("Setup failed: %v", err)
+			// Continue with empty config - server will still work
+		} else {
+			log.Printf("Setup complete: %d servers imported", count)
 
-	// Background setup goroutine (non-blocking)
-	if setupNeeded {
-		go func() {
-			setupOnce.Do(func() {
-				log.Printf("Config not found, running setup in background...")
-				count, err := RunSetupNonInteractive()
-				if err != nil {
-					log.Printf("Setup failed: %v", err)
-					return
-				}
-				log.Printf("Setup complete: %d servers imported", count)
-
-				// Reload config with new servers
-				newCfg, err := config.LoadOrCreate()
-				if err != nil {
-					log.Printf("Failed to reload config: %v", err)
-					return
-				}
+			// Reload config with new servers
+			newCfg, err := config.LoadOrCreate()
+			if err != nil {
+				log.Printf("Failed to reload config: %v", err)
+			} else {
 				server.ReloadConfig(newCfg)
-			})
-		}()
+			}
+		}
 	}
 
 	// Background update check goroutine (non-blocking)
@@ -88,7 +80,7 @@ func runServe() error {
 		checkForUpdates()
 	}()
 
-	// Start server immediately (don't wait for setup/updates)
+	// Start server
 	return server.Run()
 }
 
