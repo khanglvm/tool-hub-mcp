@@ -75,12 +75,11 @@ func runServe() error {
 		}
 	}
 
-	// Background update check goroutine (non-blocking)
-	go func() {
-		checkForUpdates()
-	}()
+	// Start background tasks (non-blocking)
+	go checkForUpdates()
+	server.StartBackgroundDiscovery()
 
-	// Start server
+	// Start server immediately
 	return server.Run()
 }
 

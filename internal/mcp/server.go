@@ -111,6 +111,19 @@ func (s *Server) indexToolsUnsafe() error {
 	return nil
 }
 
+// StartBackgroundDiscovery starts tool indexing in background goroutine.
+// Server accepts requests immediately; search improves as indexing completes.
+func (s *Server) StartBackgroundDiscovery() {
+	go func() {
+		if s.indexer == nil {
+			return
+		}
+		if err := s.IndexTools(); err != nil {
+			log.Printf("Background indexing failed: %v", err)
+		}
+	}()
+}
+
 // ReloadConfig atomically reloads configuration and reindexes tools.
 // Thread-safe for concurrent use from background goroutines.
 func (s *Server) ReloadConfig(newCfg *config.Config) {
@@ -132,15 +145,6 @@ func (s *Server) ReloadConfig(newCfg *config.Config) {
 // Run starts the MCP server using stdio transport.
 // This blocks until stdin is closed.
 func (s *Server) Run() error {
-	// Index all tools from all servers for search
-	// This is done once at startup to populate the search index
-	if s.indexer != nil {
-		if err := s.IndexTools(); err != nil {
-			log.Printf("Warning: failed to index tools: %v", err)
-			// Continue without search functionality
-		}
-	}
-
 	scanner := bufio.NewScanner(os.Stdin)
 
 	for scanner.Scan() {

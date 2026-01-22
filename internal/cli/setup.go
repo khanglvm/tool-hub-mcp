@@ -91,7 +91,10 @@ func runSetup(nonInteractive bool) error {
 	fmt.Println()
 
 	// Merge all configs
-	mergedConfig := config.NewConfig()
+	mergedConfig, err := config.LoadOrCreate()
+	if err != nil {
+		return fmt.Errorf("failed to load existing config: %w", err)
+	}
 	totalImported := 0
 	skippedCount := 0
 	skipReasons := make(map[string]int)
@@ -188,7 +191,10 @@ func RunSetupNonInteractive() (int, error) {
 	}
 
 	// Merge all configs
-	mergedConfig := config.NewConfig()
+	mergedConfig, err := config.LoadOrCreate()
+	if err != nil {
+		return 0, fmt.Errorf("failed to load existing config: %w", err)
+	}
 	totalImported := 0
 
 	for sourceName, result := range foundConfigs {
