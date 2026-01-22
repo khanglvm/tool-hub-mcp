@@ -9,6 +9,7 @@ package mcp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -34,6 +35,13 @@ type Server struct {
 	indexer  *search.Indexer
 	storage  *storage.SQLiteStorage
 	tracker  *learning.Tracker
+
+	// Context for background goroutines (update checker, discovery)
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// closeOnce ensures Close() is idempotent (safe to call multiple times)
+	closeOnce sync.Once
 }
 
 // NewServer creates a new MCP server with the given configuration.
@@ -63,13 +71,71 @@ func NewServer(cfg *config.Config) *Server {
 		tracker = learning.NewTracker(str)
 	}
 
+	// Create cancellable context for background tasks
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &Server{
 		config:  cfg,
 		spawner: spawner.NewPool(poolSize),
 		indexer: indexer,
 		storage: str,
 		tracker: tracker,
+		ctx:     ctx,
+		cancel:  cancel,
 	}
+}
+
+// Close gracefully shuts down the server and cleans up all resources.
+// Resources closed in dependency order: tracker → storage → indexer → spawner.
+// Safe to call multiple times (idempotent via sync.Once).
+func (s *Server) Close() error {
+	var errs []error
+
+	s.closeOnce.Do(func() {
+		log.Println("Shutting down server...")
+
+		// Cancel background goroutines first
+		if s.cancel != nil {
+			s.cancel()
+		}
+
+		// 1. Stop tracker (flushes event queue to storage)
+		if s.tracker != nil {
+			log.Println("Stopping tracker...")
+			s.tracker.Stop()
+		}
+
+		// 2. Close storage (commits SQLite transactions)
+		if s.storage != nil {
+			log.Println("Closing storage...")
+			if err := s.storage.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("storage: %w", err))
+			}
+		}
+
+		// 3. Close indexer (closes Bleve index files)
+		if s.indexer != nil {
+			log.Println("Closing indexer...")
+			if err := s.indexer.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("indexer: %w", err))
+			}
+		}
+
+		// 4. Close spawner pool (terminates child processes)
+		if s.spawner != nil {
+			log.Println("Closing spawner pool...")
+			if err := s.spawner.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("spawner: %w", err))
+			}
+		}
+
+		log.Println("Server shutdown complete")
+	})
+
+	if len(errs) > 0 {
+		return fmt.Errorf("cleanup errors: %v", errs)
+	}
+	return nil
 }
 
 // IndexTools indexes all tools from all servers for search.
@@ -113,15 +179,29 @@ func (s *Server) indexToolsUnsafe() error {
 
 // StartBackgroundDiscovery starts tool indexing in background goroutine.
 // Server accepts requests immediately; search improves as indexing completes.
+// Goroutine exits when server context is cancelled.
 func (s *Server) StartBackgroundDiscovery() {
 	go func() {
 		if s.indexer == nil {
 			return
 		}
+
+		// Check if context cancelled before starting
+		select {
+		case <-s.ctx.Done():
+			return
+		default:
+		}
+
 		if err := s.IndexTools(); err != nil {
 			log.Printf("Background indexing failed: %v", err)
 		}
 	}()
+}
+
+// Context returns the server's context for background tasks.
+func (s *Server) Context() context.Context {
+	return s.ctx
 }
 
 // ReloadConfig atomically reloads configuration and reindexes tools.

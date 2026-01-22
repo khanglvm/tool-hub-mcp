@@ -11,11 +11,14 @@ package spawner
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,7 +50,9 @@ type Process struct {
 	// reqID is an atomic counter for generating request IDs
 	// We use a counter instead of UnixNano to avoid JavaScript precision issues
 	// (JS Number.MAX_SAFE_INTEGER = 2^53-1 = 9007199254740991)
-	reqID  int64
+	reqID int64
+	// cancel cancels the stderr draining goroutine on process termination
+	cancel context.CancelFunc
 }
 
 
@@ -57,6 +62,52 @@ func NewPool(maxSize int) *Pool {
 		maxSize:   maxSize,
 		processes: make(map[string]*Process),
 	}
+}
+
+// Close terminates all spawned processes and cleans up resources.
+// Implements graceful shutdown: closes stdin first, waits 2s, then force kills.
+func (p *Pool) Close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	var errs []error
+
+	for name, proc := range p.processes {
+		log.Printf("Terminating process: %s", name)
+
+		// Step 1: Close stdin (graceful signal to child)
+		if proc.stdin != nil {
+			if err := proc.stdin.Close(); err != nil {
+				log.Printf("Warning: failed to close stdin for %s: %v", name, err)
+			}
+		}
+
+		// Step 2: Wait briefly for graceful exit (2s timeout)
+		done := make(chan error, 1)
+		go func() {
+			done <- proc.cmd.Wait()
+		}()
+
+		select {
+		case err := <-done:
+			// Process exited (gracefully or with error)
+			if err != nil && !strings.Contains(err.Error(), "signal: killed") {
+				errs = append(errs, fmt.Errorf("%s: %w", name, err))
+			}
+		case <-time.After(2 * time.Second):
+			// Timeout - force kill
+			log.Printf("Process %s did not exit gracefully, force killing", name)
+			proc.kill()
+		}
+	}
+
+	// Step 3: Clear processes map
+	p.processes = make(map[string]*Process)
+
+	if len(errs) > 0 {
+		return fmt.Errorf("cleanup errors: %v", errs)
+	}
+	return nil
 }
 
 // GetTools spawns a server (if needed) and returns its tool list.
@@ -154,6 +205,13 @@ func (p *Pool) getOrSpawn(name string, cfg *config.ServerConfig) (*Process, erro
 	// Initialize the server
 	if err := proc.initialize(); err != nil {
 		proc.kill()
+		// Improve error message for EOF (common when npm package doesn't exist)
+		if strings.Contains(err.Error(), "EOF") {
+			pkg := getNpmPackageFromConfig(cfg)
+			if pkg != "" {
+				return nil, fmt.Errorf("MCP server failed to start. Package '%s' may not exist or failed to load. Verify with: npm view %s", pkg, pkg)
+			}
+		}
 		return nil, fmt.Errorf("failed to initialize server: %w", err)
 	}
 
@@ -193,15 +251,27 @@ func (p *Pool) spawn(cfg *config.ServerConfig) (*Process, error) {
 		return nil, fmt.Errorf("failed to start process: %w", err)
 	}
 
-	// Drain stderr in background to prevent blocking
+	// Create cancellable context for stderr draining goroutine
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Drain stderr in background to prevent blocking (context-aware)
+	// Goroutine exits when: (1) process dies (io.Copy returns), OR (2) context cancelled
 	go func() {
+		// io.Copy blocks until stderr is closed (process exit) or error
 		io.Copy(io.Discard, stderr)
+		// Context cancellation ensures cleanup even if pipe hangs
+		select {
+		case <-ctx.Done():
+		default:
+			// io.Copy finished naturally (process exited)
+		}
 	}()
 
 	return &Process{
 		cmd:    cmd,
 		stdin:  stdin,
 		stdout: bufio.NewReader(stdout),
+		cancel: cancel,
 	}, nil
 }
 
@@ -319,9 +389,29 @@ func (proc *Process) sendRequest(method string, params interface{}) (interface{}
 	}
 }
 
-// kill terminates the process.
+// kill terminates the process and cancels the stderr goroutine.
 func (proc *Process) kill() {
+	// Cancel stderr draining goroutine first
+	if proc.cancel != nil {
+		proc.cancel()
+	}
+
+	// Kill the process
 	if proc.cmd != nil && proc.cmd.Process != nil {
 		proc.cmd.Process.Kill()
 	}
+}
+
+// getNpmPackageFromConfig extracts npm package name from server config.
+func getNpmPackageFromConfig(cfg *config.ServerConfig) string {
+	if cfg.Command != "npx" {
+		return ""
+	}
+	for _, arg := range cfg.Args {
+		if arg == "-y" || arg == "--yes" || strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg
+	}
+	return ""
 }

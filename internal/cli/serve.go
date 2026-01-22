@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -43,8 +46,8 @@ The server spawns child MCP servers on-demand when tools are executed.`,
 	return cmd
 }
 
-// runServe starts the MCP server with stdio transport.
-// Implements silent first-run setup and background auto-update.
+// runServe starts the MCP server with stdio transport and signal handling.
+// Implements graceful shutdown on SIGINT/SIGTERM/SIGQUIT.
 func runServe() error {
 	// Load configuration (creates empty config if missing)
 	cfg, err := config.LoadOrCreate()
@@ -75,17 +78,57 @@ func runServe() error {
 		}
 	}
 
-	// Start background tasks (non-blocking)
-	go checkForUpdates()
+	// Setup signal handling for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
+
+	// Start background tasks with server context
+	go checkForUpdates(server.Context())
 	server.StartBackgroundDiscovery()
 
-	// Start server immediately
-	return server.Run()
+	// Run server in separate goroutine
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- server.Run()
+	}()
+
+	// Wait for either signal or server error
+	select {
+	case sig := <-sigChan:
+		log.Printf("Received signal: %v, shutting down gracefully...", sig)
+
+		// Close server (triggers cleanup chain)
+		if err := server.Close(); err != nil {
+			log.Printf("Error during shutdown: %v", err)
+			return err
+		}
+
+		log.Println("Shutdown complete")
+		return nil
+
+	case err := <-errChan:
+		// Server.Run() returned (stdin closed or error)
+		// Still need to cleanup resources
+		if closeErr := server.Close(); closeErr != nil {
+			log.Printf("Error during cleanup: %v", closeErr)
+		}
+		if err != nil {
+			return fmt.Errorf("server error: %w", err)
+		}
+		return nil
+	}
 }
 
-// checkForUpdates checks for new version in background (non-blocking).
-func checkForUpdates() {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+// checkForUpdates checks for new version in background (context-aware).
+func checkForUpdates(parentCtx context.Context) {
+	// Check if cancelled before starting
+	select {
+	case <-parentCtx.Done():
+		return
+	default:
+	}
+
+	ctx, cancel := context.WithTimeout(parentCtx, 10*time.Second)
 	defer cancel()
 
 	latest, err := version.CheckUpdate(ctx)

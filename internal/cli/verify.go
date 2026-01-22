@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -55,11 +56,49 @@ func runVerify() error {
 	for name, server := range cfg.Servers {
 		if server.Command == "" {
 			fmt.Printf("✗ %s: missing command\n", name)
-		} else {
-			fmt.Printf("✓ %s: %s\n", name, server.Command)
+			continue
 		}
+
+		// Check npx packages for existence
+		if server.Command == "npx" && len(server.Args) > 0 {
+			pkg := getNpmPackageName(server.Args)
+			if pkg != "" {
+				if err := validateNpmPackage(pkg); err != nil {
+					fmt.Printf("✗ %s: package %s not found in npm registry\n", name, pkg)
+					continue
+				}
+			}
+		}
+
+		fmt.Printf("✓ %s: %s\n", name, server.Command)
 	}
 
+	return nil
+}
+
+// getNpmPackageName extracts npm package name from args (handles -y flags).
+func getNpmPackageName(args []string) string {
+	for _, arg := range args {
+		if arg == "-y" || arg == "--yes" {
+			continue
+		}
+		// Skip flags
+		if len(arg) > 0 && arg[0] == '-' {
+			continue
+		}
+		// Return first non-flag arg as package name
+		return arg
+	}
+	return ""
+}
+
+// validateNpmPackage checks if npm package exists using npm view.
+func validateNpmPackage(pkg string) error {
+	cmd := exec.Command("npm", "view", pkg, "name")
+	cmd.Stderr = nil
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("package not found: %s", pkg)
+	}
 	return nil
 }
 
