@@ -92,21 +92,109 @@ function findDownloadedBinary() {
 }
 
 /**
+ * Download binary from GitHub releases.
+ * @returns {Promise<string>} Path to downloaded binary
+ */
+async function downloadBinary() {
+    const https = require('https');
+    const fs = require('fs');
+    const path = require('path');
+    const { execSync } = require('child_process');
+    const os = require('os');
+
+    const platform = os.platform();
+    const arch = os.arch();
+    const platformMap = { 'darwin': 'Darwin', 'linux': 'Linux', 'win32': 'Windows' };
+    const archMap = { 'arm64': 'arm64', 'x64': 'x86_64' };
+    const suffix = `${platformMap[platform]}-${archMap[arch]}`;
+    const binaryName = platform === 'win32' ? 'tool-hub-mcp.exe' : 'tool-hub-mcp';
+
+    // Get version from package.json
+    const packageJson = require('./package.json');
+    const version = packageJson.version;
+
+    const downloadUrl = `https://github.com/khanglvm/tool-hub-mcp/releases/download/v${version}/tool-hub-mcp-${suffix}`;
+    const binDir = path.join(__dirname, 'bin');
+    const destPath = path.join(binDir, binaryName);
+
+    console.error(`tool-hub-mcp: Downloading binary from ${downloadUrl}...`);
+
+    if (!fs.existsSync(binDir)) {
+        fs.mkdirSync(binDir, { recursive: true });
+    }
+
+    // Use curl if available, otherwise https.get
+    try {
+        execSync(`curl -fsSL ${downloadUrl} -o ${destPath}`, { stdio: 'ignore' });
+        if (fs.existsSync(destPath)) {
+            if (platform !== 'win32') {
+                fs.chmodSync(destPath, 0o755);
+            }
+            console.error(`tool-hub-mcp: Binary downloaded successfully`);
+            return destPath;
+        }
+    } catch (e) {
+        // curl failed or binary not downloaded, fall through to https.get
+    }
+
+    // Fallback to https.get
+    return new Promise((resolve, reject) => {
+        const file = fs.createWriteStream(destPath);
+        https.get(downloadUrl, (response) => {
+            if (response.statusCode === 301 || response.statusCode === 302) {
+                file.close();
+                https.get(response.headers.location, (resp2) => {
+                    if (resp2.statusCode === 200) {
+                        resp2.pipe(file);
+                        file.on('finish', () => {
+                            file.close();
+                            if (platform !== 'win32') {
+                                fs.chmodSync(destPath, 0o755);
+                            }
+                            console.error(`tool-hub-mcp: Binary downloaded successfully`);
+                            resolve(destPath);
+                        });
+                    } else {
+                        reject(new Error(`Failed to download: HTTP ${resp2.statusCode}`));
+                    }
+                });
+                return;
+            }
+            if (response.statusCode !== 200) {
+                reject(new Error(`HTTP ${response.statusCode}`));
+                return;
+            }
+            response.pipe(file);
+            file.on('finish', () => {
+                file.close();
+                if (platform !== 'win32') {
+                    fs.chmodSync(destPath, 0o755);
+                }
+                console.error(`tool-hub-mcp: Binary downloaded successfully`);
+                resolve(destPath);
+            });
+        }).on('error', reject);
+    });
+}
+
+/**
  * Main entry point - find binary and spawn with all arguments.
  */
-function main() {
+async function main() {
     // Try platform package first, then fallback to downloaded binary
     let binaryPath = findBinaryFromPackage() || findDownloadedBinary();
 
     if (!binaryPath) {
-        console.error('Error: tool-hub-mcp binary not found.');
-        console.error('This may happen if:');
-        console.error('  1. optionalDependencies were disabled during install');
-        console.error('  2. postinstall script failed to download the binary');
-        console.error('');
-        console.error('Try reinstalling: npm install @khanglvm/tool-hub-mcp');
-        console.error('Or download manually from: https://github.com/khanglvm/tool-hub-mcp/releases');
-        process.exit(1);
+        console.error('tool-hub-mcp: Binary not found, downloading from GitHub...');
+        try {
+            binaryPath = await downloadBinary();
+        } catch (err) {
+            console.error('Error: Failed to download binary.');
+            console.error(`  ${err.message}`);
+            console.error('');
+            console.error('You can manually download from: https://github.com/khanglvm/tool-hub-mcp/releases');
+            process.exit(1);
+        }
     }
 
     // Spawn the binary with all arguments passed through
