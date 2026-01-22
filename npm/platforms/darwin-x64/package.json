@@ -1,6 +1,6 @@
 {
   "name": "@khanglvm/tool-hub-mcp-darwin-x64",
-  "version": "1.1.2",
+  "version": "1.1.4",
   "description": "Platform-specific binary for tool-hub-mcp (darwin-x64)",
   "os": ["darwin"],
   "cpu": ["x64"],

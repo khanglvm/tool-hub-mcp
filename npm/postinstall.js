@@ -212,7 +212,13 @@ function createBinSymlink(binaryName) {
 
         for (const dir of searchLevels) {
             const testPath = path.join(__dirname, dir);
-            if (fs.existsSync(testPath)) {
+            // Check if path exists or if we can create it
+            const parentDir = path.dirname(testPath);
+            if (fs.existsSync(parentDir)) {
+                // Create .bin directory if it doesn't exist
+                if (!fs.existsSync(testPath)) {
+                    fs.mkdirSync(testPath, { recursive: true });
+                }
                 binDir = testPath;
                 break;
             }
