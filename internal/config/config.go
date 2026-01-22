@@ -109,3 +109,23 @@ func Load() (*Config, error) {
 	}
 	return LoadFrom(configPath)
 }
+
+// LoadOrCreate loads config or returns empty config if not found.
+// This enables silent first-run setup in serve command.
+func LoadOrCreate() (*Config, error) {
+	configPath, err := GetDefaultConfigPath()
+	if err != nil {
+		return nil, err
+	}
+
+	cfg, err := LoadFrom(configPath)
+	if err != nil {
+		// Check if error is "not found"
+		if _, ok := err.(*ConfigNotFoundError); ok {
+			// Return empty config instead of error - allows serve to start
+			return NewConfig(), nil
+		}
+		return nil, err
+	}
+	return cfg, nil
+}

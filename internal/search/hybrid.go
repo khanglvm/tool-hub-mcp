@@ -155,9 +155,14 @@ func normalizeScores(results []SearchResult) []SearchResult {
 		}
 	}
 
-	// Avoid division by zero
+	// Avoid division by zero - when all scores are equal, set all to 1.0
 	if maxScore == minScore {
-		return results
+		normalized := make([]SearchResult, len(results))
+		for i, result := range results {
+			normalized[i] = result
+			normalized[i].Score = 1.0
+		}
+		return normalized
 	}
 
 	// Normalize

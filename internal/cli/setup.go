@@ -164,3 +164,70 @@ func runSetup(nonInteractive bool) error {
 
 	return nil
 }
+
+// RunSetupNonInteractive imports all configs without prompting.
+// Used by serve command for background setup on first run.
+func RunSetupNonInteractive() (int, error) {
+	// Scan all config sources
+	allSources := sources.GetAllSources()
+	foundConfigs := make(map[string]*sources.SourceResult)
+
+	for _, source := range allSources {
+		result, err := source.Scan()
+		if err != nil {
+			// Log but continue - source might not be installed
+			continue
+		}
+		if result != nil && len(result.Servers) > 0 {
+			foundConfigs[source.Name()] = result
+		}
+	}
+
+	if len(foundConfigs) == 0 {
+		return 0, fmt.Errorf("no MCP configurations found")
+	}
+
+	// Merge all configs
+	mergedConfig := config.NewConfig()
+	totalImported := 0
+
+	for sourceName, result := range foundConfigs {
+		for name, server := range result.Servers {
+			// Transform server name to camelCase
+			camelName := config.ToCamelCase(name)
+
+			// Validation 1: Self-reference check
+			if config.IsSelfReference(server) {
+				continue
+			}
+
+			// Validation 2: Empty command check
+			if server.Command == "" {
+				continue
+			}
+
+			// Validation 3: Duplicate name check
+			if _, exists := mergedConfig.Servers[camelName]; exists {
+				continue
+			}
+
+			// Add source metadata
+			server.Source = sourceName
+
+			mergedConfig.Servers[camelName] = server
+			totalImported++
+		}
+	}
+
+	// Save config
+	configPath, err := config.GetDefaultConfigPath()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get config path: %w", err)
+	}
+
+	if err := config.Save(mergedConfig, configPath); err != nil {
+		return 0, fmt.Errorf("failed to save config: %w", err)
+	}
+
+	return totalImported, nil
+}

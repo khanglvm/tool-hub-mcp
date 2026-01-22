@@ -14,6 +14,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,11 +28,12 @@ import (
 
 // Server represents the tool-hub-mcp MCP server.
 type Server struct {
-	config  *config.Config
-	spawner *spawner.Pool
-	indexer *search.Indexer
-	storage *storage.SQLiteStorage
-	tracker *learning.Tracker
+	config   *config.Config
+	configMu sync.RWMutex
+	spawner  *spawner.Pool
+	indexer  *search.Indexer
+	storage  *storage.SQLiteStorage
+	tracker  *learning.Tracker
 }
 
 // NewServer creates a new MCP server with the given configuration.
@@ -71,7 +73,17 @@ func NewServer(cfg *config.Config) *Server {
 }
 
 // IndexTools indexes all tools from all servers for search.
+// Thread-safe: acquires read lock before accessing config.
 func (s *Server) IndexTools() error {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+
+	return s.indexToolsUnsafe()
+}
+
+// indexToolsUnsafe indexes tools without locking (caller must hold lock).
+// This prevents recursive locking when called from ReloadConfig.
+func (s *Server) indexToolsUnsafe() error {
 	if s.indexer == nil {
 		return fmt.Errorf("search indexer not available")
 	}
@@ -97,6 +109,24 @@ func (s *Server) IndexTools() error {
 	}
 
 	return nil
+}
+
+// ReloadConfig atomically reloads configuration and reindexes tools.
+// Thread-safe for concurrent use from background goroutines.
+func (s *Server) ReloadConfig(newCfg *config.Config) {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+
+	s.config = newCfg
+
+	// Re-index tools with new server list using unsafe version (already holding lock)
+	if s.indexer != nil {
+		if err := s.indexToolsUnsafe(); err != nil {
+			log.Printf("Warning: failed to reindex tools after config reload: %v", err)
+		}
+	}
+
+	log.Printf("Config reloaded: %d servers registered", len(newCfg.Servers))
 }
 
 // Run starts the MCP server using stdio transport.
@@ -202,23 +232,31 @@ func (s *Server) handleToolsList(req *MCPRequest) (*MCPResponse, error) {
 	tools := []map[string]interface{}{
 		{
 			"name": "hub_search",
-			"description": fmt.Sprintf(`Gateway to external tools and integrations. Find the right tool using natural language.
+			"description": fmt.Sprintf(`Gateway to external tools and integrations. Use semantic search to discover capabilities.
 
-USE THIS TOOL WHEN:
-• User describes what they want to do but doesn't name a specific tool
-• User asks about available tools, integrations, or capabilities
-• User wants to interact with external services, APIs, or data sources
-• User mentions ANY external service, platform, or integration by name
-• You need to discover tools without knowing server names
+CALL THIS FIRST when:
+• User describes WHAT they want to do (not HOW)
+• User mentions ANY external service/platform by name (Figma, Jira, etc.)
+• User asks about available tools or capabilities
+• You're unsure which tool to use for a task
+• User wants to interact with external APIs, services, or data sources
 
-HOW IT WORKS: Uses semantic search to find relevant tools across all servers.
-Returns rich response with tool name, description, inputSchema, and expected response shape.
+WORKFLOW:
+1. Describe capability in plain English
+2. Get ranked tools with full schemas
+3. Use hub_execute to run selected tool
 
-EXAMPLES:
-• "create jira ticket" → finds Jira create_issue tool with full schema
-• "take screenshot" → finds screenshot tools with parameters
-• "all tools" or "tools" → shows all tools from all servers
-• "jira" → shows all Jira tools
+EXAMPLES (capability → tool discovery):
+• "extract figma design" → finds Figma extract tools
+• "create jira ticket" → finds Jira create_issue with schema
+• "take screenshot of website" → finds screenshot tools with parameters
+• "search documents" → finds doc search tools
+• "all tools" → lists all tools from all servers
+
+ANTI-PATTERNS (don't do this):
+• Don't use web search when user mentions external services
+• Don't guess tool names - search first
+• Don't assume tools don't exist - search will tell you
 
 CURRENTLY REGISTERED: %s
 
@@ -247,9 +285,13 @@ Returns: JSON with searchId (for tracking), results array with tool details (nam
 			"name": "hub_execute",
 			"description": fmt.Sprintf(`Run a tool from an external integration.
 
-USE THIS TOOL WHEN:
-• You've discovered available tools (via hub_search) and know which one to run
+USE THIS TOOL AFTER:
+• You've used hub_search to discover available tools
+• You know which tool to run and have its schema
 • You have the tool name and required arguments ready
+
+IMPORTANT: Always call hub_search first to discover tools and get their schemas.
+Only call hub_execute when you have the tool details from hub_search.
 
 LEARNING: Optionally pass searchId from hub_search to improve tool recommendations.
 This helps the system learn which tools work best for specific queries.
@@ -292,6 +334,9 @@ CURRENTLY REGISTERED: %s`, serverList),
 
 // getServerNames returns a comma-separated list of server names.
 func (s *Server) getServerNames() string {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+
 	names := []string{}
 	for name := range s.config.Servers {
 		names = append(names, name)
@@ -308,6 +353,9 @@ func (s *Server) getServerNames() string {
 
 // getServerNamesList returns server names as a slice for enum.
 func (s *Server) getServerNamesList() []string {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+
 	names := []string{}
 	for name := range s.config.Servers {
 		names = append(names, name)
@@ -508,6 +556,9 @@ func (s *Server) generateMatchReason(result search.SearchResult) string {
 func (s *Server) execHubSearchFallback(query, searchID string) (string, error) {
 	query = strings.ToLower(query)
 
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+
 	// Match against actual registered server names (dynamic, no hardcoding)
 	matchedServers := []string{}
 	for name := range s.config.Servers {
@@ -517,7 +568,7 @@ func (s *Server) execHubSearchFallback(query, searchID string) (string, error) {
 			matchedServers = append(matchedServers, name)
 		}
 	}
-	
+
 	if len(matchedServers) == 0 {
 		// No match, return all servers as suggestions
 		var result strings.Builder
@@ -543,7 +594,10 @@ func (s *Server) execHubSearchFallback(query, searchID string) (string, error) {
 
 // execHubExecute executes a tool from a server.
 func (s *Server) execHubExecute(serverName, toolName string, args map[string]interface{}, searchId string) (string, error) {
+	s.configMu.RLock()
 	server, exists := s.config.Servers[serverName]
+	s.configMu.RUnlock()
+
 	if !exists {
 		return "", fmt.Errorf("server '%s' not found", serverName)
 	}
