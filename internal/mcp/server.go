@@ -102,11 +102,20 @@ func (s *Server) IndexTools() error {
 // Run starts the MCP server using stdio transport.
 // This blocks until stdin is closed.
 func (s *Server) Run() error {
+	// Index all tools from all servers for search
+	// This is done once at startup to populate the search index
+	if s.indexer != nil {
+		if err := s.IndexTools(); err != nil {
+			log.Printf("Warning: failed to index tools: %v", err)
+			// Continue without search functionality
+		}
+	}
+
 	scanner := bufio.NewScanner(os.Stdin)
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
-		
+
 		response, err := s.handleRequest(line)
 		if err != nil {
 			// Send error response
