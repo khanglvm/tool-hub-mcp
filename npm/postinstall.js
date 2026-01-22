@@ -200,33 +200,23 @@ async function main() {
  * Create .bin symlink for the CLI wrapper.
  * This is needed because npm sometimes doesn't create symlinks properly
  * when packages are installed via npx or when optionalDependencies are used.
+ *
+ * __dirname is: node_modules/@khanglvm/tool-hub-mcp/
+ * We need to create: node_modules/.bin/tool-hub-mcp
+ * So we need: ../../.bin from __dirname
  */
 function createBinSymlink(binaryName) {
     try {
         const fs = require('fs');
         const path = require('path');
 
-        // Find the .bin directory (usually at node_modules/.bin)
-        let binDir = null;
-        const searchLevels = ['node_modules/.bin', '../.bin', '../../.bin', '.bin'];
+        // __dirname = node_modules/@khanglvm/tool-hub-mcp/
+        // We need: node_modules/.bin/ = ../../.bin
+        const binDir = path.join(__dirname, '../../.bin');
 
-        for (const dir of searchLevels) {
-            const testPath = path.join(__dirname, dir);
-            // Check if path exists or if we can create it
-            const parentDir = path.dirname(testPath);
-            if (fs.existsSync(parentDir)) {
-                // Create .bin directory if it doesn't exist
-                if (!fs.existsSync(testPath)) {
-                    fs.mkdirSync(testPath, { recursive: true });
-                }
-                binDir = testPath;
-                break;
-            }
-        }
-
-        if (!binDir) {
-            // .bin directory doesn't exist, might be in a global install
-            return;
+        // Create .bin directory if it doesn't exist
+        if (!fs.existsSync(binDir)) {
+            fs.mkdirSync(binDir, { recursive: true });
         }
 
         const linkPath = path.join(binDir, binaryName);
