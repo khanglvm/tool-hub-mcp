@@ -107,9 +107,9 @@ func TestToEnvVarCase(t *testing.T) {
 
 func TestNormalizeEnvVars(t *testing.T) {
 	input := map[string]string{
-		"jiraBaseUrl":    "http://jira.example.com",
-		"JIRA_USERNAME":  "user",
-		"jira-password":  "pass",
+		"jiraBaseUrl":   "http://jira.example.com",
+		"JIRA_USERNAME": "user",
+		"jira-password": "pass",
 	}
 
 	result := NormalizeEnvVars(input)

@@ -14,9 +14,16 @@ env:
 
 jobs:
   # ============================================
+  # Run tests before building
+  # ============================================
+  test:
+    uses: ./.github/workflows/test.yml
+
+  # ============================================
   # Build Go binaries for all platforms
   # ============================================
   build:
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       matrix:

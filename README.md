@@ -30,14 +30,19 @@ Measured in Claude Code v2.1.6 using `--output-format json` to get exact `input_
 | **Tokens Saved** | **18,613** |
 | **Reduction** | **38.48%** |
 
-**Larger Test: 5 MCP servers** (98 tools total)
+**Larger Test: 7 MCP servers** (98 tools total)
 
 | Configuration | Input Tokens |
 |---------------|--------------|
-| 5 Individual MCPs | **15,150** |
+| 7 Individual MCPs | **15,150** |
 | tool-hub only | **461** |
 | **Tokens Saved** | **14,689** |
-| **Reduction** | **95.0%** |
+| **Reduction** | **96.9%** |
+
+**Token Optimization (v1.2.0)**:
+- Compact JSON (no indentation): ~35% reduction
+- Removed redundant fields: ~40% per search result
+- Result: 43.7% savings on 2 results, ~70% on 10 results
 
 ## Installation
 
@@ -107,6 +112,48 @@ tool-hub-mcp serve
 claude mcp add tool-hub -- tool-hub-mcp serve
 ```
 
+### Export Tool Index for Bash/Grep
+
+Generate a local index file for offline tool search without MCP overhead:
+
+```bash
+# Export to default location (~/.tool-hub-mcp-index.jsonl)
+tool-hub-mcp export-index
+
+# Custom output path
+tool-hub-mcp export-index --output ./my-tools.jsonl
+
+# JSON array format (instead of JSONL)
+tool-hub-mcp export-index --format json
+```
+
+**Auto-regeneration**: Index automatically updates when you run `setup`, `add`, or `remove` commands.
+
+**Bash/Grep Usage Examples**:
+
+```bash
+# Find tools by server
+grep '"jira"' ~/.tool-hub-mcp-index.jsonl
+
+# Search tool descriptions
+grep -i "search" ~/.tool-hub-mcp-index.jsonl | jq -r '.tool'
+
+# List all tools
+cat ~/.tool-hub-mcp-index.jsonl | jq -r '.tool'
+
+# Count tools per server
+cat ~/.tool-hub-mcp-index.jsonl | jq -r '.server' | sort | uniq -c
+
+# Complex query: Find Jira tools with "issue" in description
+grep '"jira"' ~/.tool-hub-mcp-index.jsonl | grep -i "issue" | jq .
+```
+
+**Why use bash/grep?**
+- Zero MCP overhead (no process spawning)
+- Works offline (local file)
+- Standard Unix tools (no dependencies)
+- Scriptable and composable
+
 ### Benchmark Performance
 
 ```bash
@@ -127,6 +174,7 @@ tool-hub-mcp benchmark speed
 | `list` | List registered servers |
 | `verify` | Verify configuration |
 | `serve` | Run the MCP server (stdio) |
+| `export-index` | Export tool index for bash/grep search (offline) |
 | `benchmark` | Compare token consumption |
 | `benchmark speed` | Measure latency per server |
 | `learning` | Manage learning system (status, export, clear, enable, disable) |
@@ -185,8 +233,10 @@ tool-hub-mcp benchmark speed
 ## Performance
 
 **Token Efficiency:**
-- 38-96% reduction vs traditional approach
+- 38-97% reduction vs traditional approach
+- v1.2.0: Additional 43-70% savings per search
 - Scales better with more servers
+- Bash/grep alternative: Zero tokens (offline)
 
 **Speed:**
 - Cold start: ~845ms (first tool call)
@@ -220,6 +270,40 @@ tool-hub-mcp benchmark speed
   }
 }
 ```
+
+## Development Workflow
+
+### Setup
+
+Install git hooks for automatic testing:
+
+```bash
+make setup-hooks
+```
+
+### Testing
+
+```bash
+# Run all tests
+make test
+
+# Run tests with race detector
+make test-race
+
+# Run fast tests (pre-commit)
+make test-fast
+
+# Run full suite with coverage check (pre-push)
+make test-coverage
+```
+
+### Git Hooks
+
+- **Pre-commit:** Runs fast tests on changed packages (~10s)
+- **Pre-push:** Runs full suite with coverage check (~60s, requires 80% coverage)
+- **Bypass:** Use `git commit --no-verify` or `git push --no-verify` for emergencies
+
+The hooks prevent failing code from reaching the remote repository. Coverage threshold is enforced at 80%.
 
 ## Documentation
 

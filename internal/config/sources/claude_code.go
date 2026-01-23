@@ -15,15 +15,16 @@ import (
 //   - .mcp.json (project-level config)
 //
 // Format:
-//   {
-//     "mcpServers": {
-//       "server-name": {
-//         "command": "npx",
-//         "args": ["-y", "@package/name"],
-//         "env": {"KEY": "value"}
-//       }
-//     }
-//   }
+//
+//	{
+//	  "mcpServers": {
+//	    "server-name": {
+//	      "command": "npx",
+//	      "args": ["-y", "@package/name"],
+//	      "env": {"KEY": "value"}
+//	    }
+//	  }
+//	}
 type ClaudeCodeSource struct{}
 
 // claudeCodeConfig represents the Claude Code configuration file structure.

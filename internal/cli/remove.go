@@ -3,8 +3,8 @@ package cli
 import (
 	"fmt"
 
-	"github.com/spf13/cobra"
 	"github.com/khanglvm/tool-hub-mcp/internal/config"
+	"github.com/spf13/cobra"
 )
 
 // NewRemoveCmd creates the 'remove' command for removing MCP servers.
@@ -34,7 +34,7 @@ func runRemove(name string) error {
 
 	// Try both original name and camelCase
 	camelName := config.ToCamelCase(name)
-	
+
 	if _, exists := cfg.Servers[name]; exists {
 		delete(cfg.Servers, name)
 	} else if _, exists := cfg.Servers[camelName]; exists {
@@ -51,6 +51,9 @@ func runRemove(name string) error {
 	if err := config.Save(cfg, configPath); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
+
+	// Auto-regenerate tool index for bash/grep access
+	RegenerateIndex()
 
 	fmt.Printf("✓ Removed server '%s'\n", name)
 	return nil

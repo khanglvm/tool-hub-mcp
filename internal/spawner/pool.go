@@ -36,7 +36,7 @@ type Tool struct {
 type Pool struct {
 	maxSize int
 	mu      sync.Mutex
-	
+
 	// processes maps server names to active processes
 	processes map[string]*Process
 }
@@ -54,7 +54,6 @@ type Process struct {
 	// cancel cancels the stderr draining goroutine on process termination
 	cancel context.CancelFunc
 }
-
 
 // NewPool creates a new process pool.
 func NewPool(maxSize int) *Pool {
@@ -127,12 +126,12 @@ func (p *Pool) GetTools(name string, cfg *config.ServerConfig) ([]Tool, error) {
 	var result struct {
 		Tools []Tool `json:"tools"`
 	}
-	
+
 	resultBytes, err := json.Marshal(response)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if err := json.Unmarshal(resultBytes, &result); err != nil {
 		return nil, err
 	}
@@ -219,10 +218,13 @@ func (p *Pool) getOrSpawn(name string, cfg *config.ServerConfig) (*Process, erro
 	return proc, nil
 }
 
+// execCommand is a variable that allows tests to mock exec.Command
+var execCommand = exec.Command
+
 // spawn starts a new MCP server process.
 func (p *Pool) spawn(cfg *config.ServerConfig) (*Process, error) {
-	cmd := exec.Command(cfg.Command, cfg.Args...)
-	
+	cmd := execCommand(cfg.Command, cfg.Args...)
+
 	// Set environment variables
 	cmd.Env = os.Environ()
 	for key, value := range cfg.Env {
@@ -240,7 +242,7 @@ func (p *Pool) spawn(cfg *config.ServerConfig) (*Process, error) {
 	}
 
 	// CRITICAL: Create stderr pipe and drain it in background to prevent
-	// pipe buffer deadlock. Some MCPs write to stderr during startup and 
+	// pipe buffer deadlock. Some MCPs write to stderr during startup and
 	// if the buffer fills up (~64KB), it blocks the entire process including stdout.
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
@@ -275,7 +277,6 @@ func (p *Pool) spawn(cfg *config.ServerConfig) (*Process, error) {
 	}, nil
 }
 
-
 // initialize sends the MCP initialize request and initialized notification.
 func (proc *Process) initialize() error {
 	// Step 1: Send initialize request
@@ -302,14 +303,13 @@ func (proc *Process) initialize() error {
 		return err
 	}
 	notifBytes = append(notifBytes, '\n')
-	
+
 	proc.mu.Lock()
 	_, err = proc.stdin.Write(notifBytes)
 	proc.mu.Unlock()
-	
+
 	return err
 }
-
 
 // DefaultTimeout is the maximum time to wait for an MCP response.
 // Set to 60s to handle npx package downloads on cold start.

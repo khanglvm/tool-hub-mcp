@@ -691,8 +691,8 @@ func (s *Server) execHubSearch(query, serverFilter string, limit int) (string, e
 		response["failedServers"] = []map[string]interface{}{}
 	}
 
-	// Convert to JSON
-	jsonBytes, err := json.MarshalIndent(response, "", "  ")
+	// Convert to JSON (compact format for token efficiency)
+	jsonBytes, err := json.Marshal(response)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal response: %w", err)
 	}
@@ -700,74 +700,23 @@ func (s *Server) execHubSearch(query, serverFilter string, limit int) (string, e
 	return string(jsonBytes), nil
 }
 
-// formatSearchResults converts search results to rich format with tool details.
+// formatSearchResults converts search results to compact format with tool details.
 func (s *Server) formatSearchResults(results []search.SearchResult) []map[string]interface{} {
 	formatted := make([]map[string]interface{}, 0, len(results))
 
 	for _, result := range results {
-		// Generate expected response description from schema
-		expectedResponse := s.generateExpectedResponse(result.InputSchema)
-
 		toolDetail := map[string]interface{}{
-			"tool": map[string]interface{}{
-				"name":             result.ToolName,
-				"description":      result.Description,
-				"inputSchema":      result.InputSchema,
-				"expectedResponse": expectedResponse,
-			},
+			"name":        result.ToolName,
+			"description": result.Description,
+			"inputSchema": result.InputSchema,
 			"server":      result.ServerName,
 			"score":       result.Score,
-			"matchReason": s.generateMatchReason(result),
 		}
 
 		formatted = append(formatted, toolDetail)
 	}
 
 	return formatted
-}
-
-// generateExpectedResponse creates a human-readable description of the expected response.
-func (s *Server) generateExpectedResponse(schema interface{}) string {
-	if schema == nil {
-		return "Returns tool execution result"
-	}
-
-	// Parse schema as map
-	schemaMap, ok := schema.(map[string]interface{})
-	if !ok {
-		return "Returns tool execution result"
-	}
-
-	// Try to extract output description
-	// This is a simple heuristic - in production, you'd parse the schema more carefully
-	var responseTypes []string
-
-	if props, ok := schemaMap["properties"].(map[string]interface{}); ok {
-		for propName, propDef := range props {
-			if propDefMap, ok := propDef.(map[string]interface{}); ok {
-				if propType, ok := propDefMap["type"].(string); ok {
-					responseTypes = append(responseTypes, fmt.Sprintf("%s (%s)", propName, propType))
-				}
-			}
-		}
-	}
-
-	if len(responseTypes) > 0 {
-		return fmt.Sprintf("Returns: %s", strings.Join(responseTypes, ", "))
-	}
-
-	return "Returns tool execution result"
-}
-
-// generateMatchReason creates a human-readable explanation of why this tool matched.
-func (s *Server) generateMatchReason(result search.SearchResult) string {
-	if result.Score > 5.0 {
-		return "Strong keyword match in tool name or description"
-	} else if result.Score > 2.0 {
-		return "Partial keyword match"
-	} else {
-		return "Low relevance match"
-	}
 }
 
 // execHubSearchFallback is the fallback when indexer is not available.

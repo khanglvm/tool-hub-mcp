@@ -6,26 +6,29 @@ consumption by exposing a single unified endpoint with meta-tools instead
 of individual MCP servers.
 
 Usage:
-  tool-hub-mcp [command]
+
+	tool-hub-mcp [command]
 
 Available Commands:
-  setup       Import MCP configurations from AI CLI tools
-  serve       Run the MCP server (stdio transport)
-  add         Add an MCP server manually
-  remove      Remove an MCP server
-  list        List all registered MCP servers
-  verify      Verify configuration and connections
-  help        Help about any command
+
+	setup       Import MCP configurations from AI CLI tools
+	serve       Run the MCP server (stdio transport)
+	add         Add an MCP server manually
+	remove      Remove an MCP server
+	list        List all registered MCP servers
+	verify      Verify configuration and connections
+	help        Help about any command
 
 Examples:
-  # Import configs from Claude Code and OpenCode
-  tool-hub-mcp setup
 
-  # Run as MCP server
-  tool-hub-mcp serve
+	# Import configs from Claude Code and OpenCode
+	tool-hub-mcp setup
 
-  # Add a server manually
-  tool-hub-mcp add jira --command "npx -y @lvmk/jira-mcp"
+	# Run as MCP server
+	tool-hub-mcp serve
+
+	# Add a server manually
+	tool-hub-mcp add jira --command "npx -y @lvmk/jira-mcp"
 */
 package main
 
@@ -33,9 +36,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
 	"github.com/khanglvm/tool-hub-mcp/internal/cli"
 	"github.com/khanglvm/tool-hub-mcp/internal/version"
+	"github.com/spf13/cobra"
 )
 
 func main() {
@@ -62,7 +65,8 @@ Token savings: 38% reduction (2 meta-tools vs 100+ individual tools)`,
 	rootCmd.AddCommand(cli.NewRemoveCmd())
 	rootCmd.AddCommand(cli.NewListCmd())
 	rootCmd.AddCommand(cli.NewVerifyCmd())
-	
+	rootCmd.AddCommand(cli.NewExportIndexCmd())
+
 	// Benchmark command with speed subcommand
 	benchmarkCmd := cli.NewBenchmarkCmd()
 	benchmarkCmd.AddCommand(cli.NewSpeedBenchmarkCmd())

@@ -8,8 +8,8 @@ package cli
 import (
 	"fmt"
 
-	"github.com/spf13/cobra"
 	"github.com/khanglvm/tool-hub-mcp/internal/version"
+	"github.com/spf13/cobra"
 )
 
 // NewVersionCmd creates the 'version' command

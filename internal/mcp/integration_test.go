@@ -55,9 +55,9 @@ func TestSearchWorkflow(t *testing.T) {
 // TestServerInitialization tests server creation with various configs
 func TestServerInitialization(t *testing.T) {
 	tests := []struct {
-		name     string
-		config   *config.Config
-		wantNil  bool
+		name    string
+		config  *config.Config
+		wantNil bool
 	}{
 		{
 			name: "nil config",

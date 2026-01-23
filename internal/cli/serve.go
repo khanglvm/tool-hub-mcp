@@ -9,10 +9,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/khanglvm/tool-hub-mcp/internal/config"
 	"github.com/khanglvm/tool-hub-mcp/internal/mcp"
 	"github.com/khanglvm/tool-hub-mcp/internal/version"
+	"github.com/spf13/cobra"
 )
 
 // NewServeCmd creates the 'serve' command for running the MCP server.

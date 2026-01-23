@@ -6,8 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/spf13/cobra"
 	"github.com/khanglvm/tool-hub-mcp/internal/config"
+	"github.com/spf13/cobra"
 )
 
 // NewVerifyCmd creates the 'verify' command for verifying configuration.

@@ -3,9 +3,9 @@ package cli
 import (
 	"fmt"
 
-	"github.com/spf13/cobra"
 	"github.com/khanglvm/tool-hub-mcp/internal/config"
 	"github.com/khanglvm/tool-hub-mcp/internal/spawner"
+	"github.com/spf13/cobra"
 )
 
 // NewListCmd creates the 'list' command for listing registered MCP servers.

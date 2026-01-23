@@ -9,9 +9,9 @@ package cli
 import (
 	"fmt"
 
-	"github.com/spf13/cobra"
 	"github.com/khanglvm/tool-hub-mcp/internal/config"
 	"github.com/khanglvm/tool-hub-mcp/internal/config/sources"
+	"github.com/spf13/cobra"
 )
 
 // NewSetupCmd creates the 'setup' command for importing MCP configurations.
@@ -75,7 +75,7 @@ func runSetup(nonInteractive bool) error {
 		}
 		if result != nil && len(result.Servers) > 0 {
 			foundConfigs[source.Name()] = result
-			fmt.Printf("  ✓ %s (%s) - %d MCP servers\n", 
+			fmt.Printf("  ✓ %s (%s) - %d MCP servers\n",
 				source.Name(), result.ConfigPath, len(result.Servers))
 		}
 	}
@@ -144,6 +144,9 @@ func runSetup(nonInteractive bool) error {
 	if err := config.Save(mergedConfig, configPath); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
+
+	// Auto-regenerate tool index for bash/grep access
+	RegenerateIndex()
 
 	fmt.Printf("✓ Imported %d MCP servers to %s\n", totalImported, configPath)
 

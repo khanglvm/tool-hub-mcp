@@ -42,10 +42,10 @@ type UsageEvent struct {
 // NewUsageEvent creates a new usage event for tracking.
 func NewUsageEvent(toolName, context string, selected bool, rating int, wasRecommended bool, searchID string) UsageEvent {
 	return UsageEvent{
-		ToolName:        toolName,
-		ContextHash:     hashContext(context),
-		Timestamp:       time.Now(),
-		Selected:        selected,
+		ToolName:       toolName,
+		ContextHash:    hashContext(context),
+		Timestamp:      time.Now(),
+		Selected:       selected,
 		Rating:         rating,
 		WasRecommended: wasRecommended,
 		SearchID:       searchID,
@@ -55,10 +55,10 @@ func NewUsageEvent(toolName, context string, selected bool, rating int, wasRecom
 // ToStorage converts learning event to storage model.
 func (e UsageEvent) ToStorage() storage.UsageEvent {
 	return storage.UsageEvent{
-		ToolName:        e.ToolName,
-		ContextHash:     e.ContextHash,
-		Timestamp:       e.Timestamp,
-		Selected:        e.Selected,
+		ToolName:       e.ToolName,
+		ContextHash:    e.ContextHash,
+		Timestamp:      e.Timestamp,
+		Selected:       e.Selected,
 		Rating:         e.Rating,
 		WasRecommended: e.WasRecommended,
 	}

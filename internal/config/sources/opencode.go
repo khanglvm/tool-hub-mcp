@@ -16,17 +16,18 @@ import (
 //   - ~/.config/opencode/opencode.json (XDG config)
 //
 // Format:
-//   {
-//     "mcp": {
-//       "serverName": {
-//         "type": "local",
-//         "command": "npx",
-//         "args": ["-y", "@package/name"],
-//         "env": {"KEY": "value"},
-//         "enabled": true
-//       }
-//     }
-//   }
+//
+//	{
+//	  "mcp": {
+//	    "serverName": {
+//	      "type": "local",
+//	      "command": "npx",
+//	      "args": ["-y", "@package/name"],
+//	      "env": {"KEY": "value"},
+//	      "enabled": true
+//	    }
+//	  }
+//	}
 type OpenCodeSource struct{}
 
 // openCodeConfig represents the OpenCode configuration file structure.

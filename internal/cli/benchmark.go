@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/khanglvm/tool-hub-mcp/internal/benchmark"
 	"github.com/khanglvm/tool-hub-mcp/internal/config"
 	"github.com/khanglvm/tool-hub-mcp/internal/spawner"
+	"github.com/spf13/cobra"
 )
 
 // NewBenchmarkCmd creates the 'benchmark' command for token efficiency testing.
@@ -172,21 +172,21 @@ func runSpeedBenchmark(iterations int) error {
 
 	for name, serverCfg := range cfg.Servers {
 		fmt.Printf("Testing: %s\n", name)
-		
+
 		var serverTotalTime time.Duration
 		var serverSuccess int
 
 		for i := 0; i < iterations; i++ {
 			start := time.Now()
-			
+
 			tools, err := pool.GetTools(name, serverCfg)
 			elapsed := time.Since(start)
-			
+
 			if err != nil {
 				fmt.Printf("  Run %d: ERROR - %v\n", i+1, err)
 				continue
 			}
-			
+
 			serverTotalTime += elapsed
 			serverSuccess++
 			fmt.Printf("  Run %d: %v (%d tools discovered)\n", i+1, elapsed.Round(time.Millisecond), len(tools))

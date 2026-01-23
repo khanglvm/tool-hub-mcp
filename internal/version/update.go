@@ -36,8 +36,8 @@ type GitHubRelease struct {
 
 // UpdateCache stores update check state.
 type UpdateCache struct {
-	LastUpdateCheck time.Time `json:"lastUpdateCheck"`
-	LastKnownVersion string   `json:"lastKnownVersion"`
+	LastUpdateCheck  time.Time `json:"lastUpdateCheck"`
+	LastKnownVersion string    `json:"lastKnownVersion"`
 }
 
 // CheckUpdate checks for new version (cached for 24h).

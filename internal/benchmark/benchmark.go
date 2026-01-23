@@ -28,10 +28,10 @@ type TokenEstimate struct {
 
 // BenchmarkResult contains comparison results.
 type BenchmarkResult struct {
-	Traditional   TokenEstimate `json:"traditional"`
-	ToolHub       TokenEstimate `json:"toolHub"`
-	TokenSavings  int           `json:"tokenSavings"`
-	SavingsPercent float64      `json:"savingsPercent"`
+	Traditional    TokenEstimate `json:"traditional"`
+	ToolHub        TokenEstimate `json:"toolHub"`
+	TokenSavings   int           `json:"tokenSavings"`
+	SavingsPercent float64       `json:"savingsPercent"`
 }
 
 // AverageToolsPerServer is the estimated number of tools per MCP server.
@@ -58,38 +58,38 @@ const ToolHubTools = 5
 // These are used for more accurate benchmarking when available.
 var knownToolCounts = map[string]int{
 	// High-token servers (browser automation)
-	"playwright":      22, // browser automation, screenshots, interactions
-	"chromeDevtools":  35, // Chrome DevTools Protocol - many debugging tools
-	"chromedevtools":  35, 
-	"browser":         15,
-	
+	"playwright":     22, // browser automation, screenshots, interactions
+	"chromeDevtools": 35, // Chrome DevTools Protocol - many debugging tools
+	"chromedevtools": 35,
+	"browser":        15,
+
 	// Documentation/knowledge
-	"mcpOutline":      32, // Outline wiki API - many document operations
-	"outline":         32,
-	"notion":          25,
-	"confluence":      20,
-	
+	"mcpOutline": 32, // Outline wiki API - many document operations
+	"outline":    32,
+	"notion":     25,
+	"confluence": 20,
+
 	// Development tools
-	"figma":           5,  // Figma design API
-	"github":          40, // GitHub API - repos, PRs, issues, etc.
-	"jira":            13,
-	"linear":          15,
-	
+	"figma":  5,  // Figma design API
+	"github": 40, // GitHub API - repos, PRs, issues, etc.
+	"jira":   13,
+	"linear": 15,
+
 	// AI/Reasoning
 	"sequentialThinking": 1,
 	"sequential":         1,
-	
+
 	// UI Components
-	"shadcn":             7, // shadcn/ui component library
-	
+	"shadcn": 7, // shadcn/ui component library
+
 	// Search/Web
-	"webSearch":       3,
-	"webReader":       2,
-	"brave":           3,
-	
+	"webSearch": 3,
+	"webReader": 2,
+	"brave":     3,
+
 	// Shell/System
-	"filesystem":      8,
-	"shell":           5,
+	"filesystem": 8,
+	"shell":      5,
 }
 
 // getToolCount returns the estimated tool count for a server.
@@ -105,35 +105,35 @@ func getToolCount(serverName string) int {
 // RunBenchmark compares token consumption between traditional and tool-hub-mcp setups.
 func RunBenchmark(cfg *config.Config) *BenchmarkResult {
 	serverCount := len(cfg.Servers)
-	
+
 	// Estimate traditional setup using known tool counts where available
 	traditionalTools := 0
 	for name := range cfg.Servers {
 		traditionalTools += getToolCount(name)
 	}
 	traditionalTokens := traditionalTools * AverageTokensPerTool
-	
+
 	traditional := TokenEstimate{
 		ServerCount:      serverCount,
 		ToolCount:        traditionalTools,
 		DefinitionTokens: traditionalTokens,
 		Description:      fmt.Sprintf("%d MCP servers with %d total tools", serverCount, traditionalTools),
 	}
-	
+
 	// tool-hub-mcp setup (fixed 5 meta-tools)
 	toolHubTokens := ToolHubTools * AverageTokensPerTool
-	
+
 	toolHub := TokenEstimate{
 		ServerCount:      1,
 		ToolCount:        ToolHubTools,
 		DefinitionTokens: toolHubTokens,
 		Description:      "1 tool-hub-mcp server with 5 meta-tools",
 	}
-	
+
 	// Calculate savings
 	savings := traditionalTokens - toolHubTokens
 	savingsPercent := float64(savings) / float64(traditionalTokens) * 100
-	
+
 	return &BenchmarkResult{
 		Traditional:    traditional,
 		ToolHub:        toolHub,

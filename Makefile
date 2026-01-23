@@ -1,4 +1,4 @@
-.PHONY: help build build-all test clean
+.PHONY: help build build-all test test-race test-fast test-coverage setup-hooks clean
 
 # Variables
 GIT_TAG := $(shell git describe --tags --always 2>/dev/null || echo "dev")
@@ -22,8 +22,30 @@ build-all: ## Build for all platforms
 	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o bin/$(BINARY_NAME)-linux-arm64 $(MAIN_PATH)
 	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o bin/$(BINARY_NAME)-windows-amd64.exe $(MAIN_PATH)
 
-test: ## Run tests
+test: ## Run all tests
 	go test -v ./...
+
+test-race: ## Run tests with race detector
+	go test -race -v ./...
+
+test-fast: ## Run fast tests on changed packages (pre-commit)
+	@./scripts/test-pre-commit.sh
+
+test-coverage: ## Run full test suite with coverage check (pre-push)
+	@./scripts/test-pre-push.sh
+
+setup-hooks: ## Install git hooks for automatic testing
+	@echo "Installing git hooks..."
+	@chmod +x scripts/test-pre-commit.sh
+	@chmod +x scripts/test-pre-push.sh
+	@echo '#!/bin/bash' > .git/hooks/pre-commit
+	@echo './scripts/test-pre-commit.sh' >> .git/hooks/pre-commit
+	@echo '#!/bin/bash' > .git/hooks/pre-push
+	@echo './scripts/test-pre-push.sh' >> .git/hooks/pre-push
+	@chmod +x .git/hooks/pre-commit
+	@chmod +x .git/hooks/pre-push
+	@echo "✅ Git hooks installed"
+	@echo "💡 Bypass with: git commit --no-verify"
 
 clean: ## Clean build artifacts
 	@rm -rf bin/

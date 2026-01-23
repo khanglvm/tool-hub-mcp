@@ -1,7 +1,7 @@
 # tool-hub-mcp: System Architecture
 
-**Version:** 1.0.1
-**Last Updated:** 2026-01-21
+**Version:** 1.2.0
+**Last Updated:** 2026-01-23
 **Status:** Active
 
 ## Overview
@@ -57,13 +57,46 @@ tool-hub-mcp implements a serverless aggregator pattern for the Model Context Pr
 | `list` | list.go | 64 | Display registered servers |
 | `verify` | verify.go | 51 | Validate configuration |
 | `serve` | serve.go | 53 | Start MCP server |
+| `export-index` | export-index.go | 178 | Export tool index for bash/grep |
 | `benchmark` | benchmark.go | 212 | Performance analysis |
 | `learning` | learning.go | 40 | Learning system management |
 
 **Framework:** spf13/cobra
 **Pattern:** One command per file, returns `*cobra.Command`
 
-### 2. MCP Server Layer (`internal/mcp/server.go`)
+### 2. CLI Export Command (`internal/cli/export-index.go`)
+
+**Lines:** 178
+**Purpose:** Export tool index for offline bash/grep search
+
+**Output Format:** JSONL (newline-delimited JSON)
+```jsonl
+{"tool":"jira_search","server":"jira","description":"...","inputSchema":{...}}
+{"tool":"figma_get_file","server":"figma","description":"...","inputSchema":{...}}
+```
+
+**Auto-Regeneration Hooks:**
+- `setup` command (after config import)
+- `add` command (after server addition)
+- `remove` command (after server removal)
+
+**File Locking:** Uses `flock` (Unix) to prevent concurrent write corruption
+
+**Usage Pattern:**
+```bash
+# Export index
+tool-hub-mcp export-index
+
+# Search with grep
+grep '"jira"' ~/.tool-hub-mcp-index.jsonl | jq -r '.tool'
+```
+
+**Benefits:**
+- Zero MCP overhead (no spawning)
+- Offline access
+- Scriptable with standard Unix tools
+
+### 3. MCP Server Layer (`internal/mcp/server.go`)
 
 **Purpose:** Implements MCP protocol with 2 meta-tools
 
@@ -499,17 +532,36 @@ N MCP Servers
   = 60,000+ Tokens
 ```
 
-**tool-hub-mcp Approach:**
+**tool-hub-mcp Approach (v1.2.0):**
 ```
 1 Server (tool-hub-mcp)
-  × 5 Meta-Tools
-  × ~150 Tokens/Tool
-  = ~750 Tokens
+  × 2 Meta-Tools (hub_search, hub_execute)
+  × ~400 Tokens/tool (optimized response)
+  = ~800 Tokens
 ```
 
 **Verified Results:**
 - 6 servers: 48,371 → 29,758 tokens (38.48% reduction)
-- 5 servers: 95.0% reduction (15,150 → 461 tokens)
+- 7 servers: 15,150 → 461 tokens (96.9% reduction)
+
+**Response Format Optimizations (v1.2.0):**
+
+**Removed Fields:**
+- `expectedResponse` - Redundant with `inputSchema`
+- `matchReason` - AI uses `score` instead
+
+**Encoding Optimization:**
+- Changed: `json.MarshalIndent` → `json.Marshal`
+- Impact: ~35% size reduction (whitespace removal)
+
+**Structure Flattening:**
+- Before: Nested tool object with 7 fields
+- After: Flat structure with 5 essential fields
+- Fields: `name`, `description`, `inputSchema`, `server`, `score`
+
+**Token Savings Per Search:**
+- 2 results: 632 → 356 tokens (43.7% reduction)
+- 10 results: ~3,000 → ~900 tokens (70% reduction estimated)
 
 ### Latency Optimization
 
@@ -818,15 +870,266 @@ AI Client                    tool-hub-mcp               Child MCP
     │  (tool result)               │                        │
 ```
 
+## Test Infrastructure
+
+### Overview
+
+Comprehensive multi-layer testing strategy ensuring code quality through automated validation at local development, pre-commit, pre-push, and CI/CD stages.
+
+### Test Architecture
+
+```
+Developer Workflow
+    ↓
+Local Testing (go test ./...)
+    ↓
+Pre-commit Hook (<10s)
+    ↓
+Pre-push Hook (<60s, 80% coverage check)
+    ↓
+GitHub Actions CI/CD
+    ├── Matrix Testing (Go 1.21, 1.22, 1.23.x)
+    ├── Race Detector
+    ├── Coverage Enforcement (80% threshold)
+    └── Codecov Upload
+```
+
+### Test Coverage Components
+
+**Unit Tests:**
+- Location: `*_test.go` files alongside source
+- Pattern: Table-driven tests with subtests
+- Current coverage: 42.5% overall (excluding E2E)
+- Target: 80% overall minimum
+
+**Coverage by Package (2026-01-22):**
+- `internal/benchmark`: 97.8% ✅
+- `internal/learning`: 89.3% ✅
+- `internal/config`: 80.7% ✅
+- `internal/search`: 69.1%
+- `internal/storage`: 48.7%
+- `internal/mcp`: 43.5%
+- `internal/cli`: 21.1%
+- `internal/spawner`: 13.2%
+
+**Integration Tests:**
+- Location: `internal/mcp/server_integration_test.go`
+- Purpose: MCP protocol compliance, component interactions
+- Coverage target: 90% for MCP handlers
+- Scenarios: hub_search, hub_execute, concurrent access, learning tracking
+
+**End-to-End Tests:**
+- Location: `test/e2e/workflow_test.go`
+- Status: In development (compilation errors present)
+- Future: Full AI client workflow simulation
+
+### Git Hooks
+
+**Pre-commit Hook:**
+```bash
+# Location: .git/hooks/pre-commit
+# Script: scripts/test-pre-commit.sh
+
+1. Detect staged Go files
+2. Identify changed packages
+3. Run go test -short on changed packages only
+4. Fail commit if tests fail
+5. Execution time: <10s
+```
+
+**Pre-push Hook:**
+```bash
+# Location: .git/hooks/pre-push
+# Script: scripts/test-pre-push.sh
+
+1. Run go test -race ./...
+2. Generate coverage report
+3. Check 80% coverage threshold
+4. Fail push if coverage < 80%
+5. Execution time: <60s
+```
+
+**Installation:**
+```bash
+make setup-hooks
+```
+
+**Bypass (emergencies only):**
+```bash
+git commit --no-verify
+git push --no-verify
+```
+
+### CI/CD Pipeline
+
+**GitHub Actions Workflow:** `.github/workflows/test.yml`
+
+**Matrix Strategy:**
+```yaml
+strategy:
+  matrix:
+    go-version: ['1.21', '1.22', '1.23.x']
+```
+
+**Pipeline Steps:**
+1. Checkout code
+2. Setup Go (with module caching)
+3. Install dependencies (`go mod download`)
+4. Run tests with race detector (`go test -race -v ./...`)
+5. Generate coverage report (`-coverprofile=coverage.out`)
+6. Validate 80% threshold (fail if below)
+7. Upload to Codecov (Go 1.23.x only)
+
+**Triggers:**
+- Push to `main` or `develop` branches
+- Pull requests to `main` branch
+
+**Enforcement:**
+- Coverage below 80% → CI fails
+- Race conditions detected → CI fails
+- Any test failure → CI fails
+
+### Test Patterns
+
+**Table-Driven Tests:**
+```go
+func TestFunction(t *testing.T) {
+    tests := []struct {
+        name     string
+        input    string
+        expected string
+    }{
+        {"case 1", "input", "output"},
+        {"error case", "bad", "error"},
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            // Test logic
+        })
+    }
+}
+```
+
+**Subprocess Mocking (TestHelperProcess):**
+- Used in `internal/spawner/pool_test.go`
+- Mocks external process spawning without actual execution
+- Environment variables control mock behavior
+
+**Integration Test Setup:**
+- Temp directories with `t.TempDir()`
+- Isolated MCP server instances
+- Mock configs for testing
+- Cleanup with `t.Cleanup()` or defer
+
+### Makefile Targets
+
+```bash
+make test              # Run all tests
+make test-race         # Run with race detector
+make test-fast         # Pre-commit fast tests (changed packages)
+make test-coverage     # Pre-push full suite + coverage check
+make setup-hooks       # Install git hooks
+```
+
+### Coverage Analysis Tools
+
+**Generate HTML Report:**
+```bash
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out -o coverage.html
+```
+
+**Function-Level Analysis:**
+```bash
+go tool cover -func=coverage.out
+go tool cover -func=coverage.out | grep -v "100.0%"
+```
+
+**Package-Level View:**
+```bash
+go test -cover ./...
+```
+
+### Performance Benchmarks
+
+**Test Execution Speed:**
+- Pre-commit hook: 3-8s (changed packages only)
+- Pre-push hook: 10-15s (full suite + coverage)
+- CI/CD pipeline: 2-3 min (matrix testing, 3 Go versions)
+
+**Coverage Overhead:**
+- With `-cover` flag: ~10-15% slower
+- With `-race` flag: ~50% slower (2-10x in some cases)
+
+### New Feature Testing Requirements
+
+**ALL new features MUST include:**
+
+1. **Unit Tests** (80%+ coverage)
+   - Happy path scenarios
+   - Error cases
+   - Edge cases
+
+2. **Integration Tests** (if API/CLI changes)
+   - Component interactions
+   - Protocol compliance
+   - End-to-end flows
+
+3. **Documentation**
+   - Test scenarios explained
+   - Known limitations
+   - Coverage justification
+
+### Future Test Improvements
+
+**Planned Enhancements:**
+- [ ] Fix E2E test compilation errors
+- [ ] Increase CLI coverage to 80%+
+- [ ] Increase spawner coverage to 85%+
+- [ ] Add parallel test execution (`t.Parallel()`)
+- [ ] Implement contract testing for MCP protocol
+- [ ] Add mutation testing for critical paths
+- [ ] Performance regression testing in CI
+
+**Monitoring:**
+- Codecov badge in README
+- Coverage trends over time
+- Test execution time tracking
+- Flaky test identification
+
+### Test Best Practices
+
+**Organization:**
+- One test file per source file
+- Table-driven tests with subtests
+- Mock external dependencies
+- Isolated test state
+
+**Performance:**
+- Use `testing.Short()` for long tests
+- Parallelize independent tests
+- Focus on critical paths
+- Cache test fixtures
+
+**Reliability:**
+- No timing dependencies
+- Platform-agnostic assertions
+- Deterministic test data
+- Proper cleanup with defer/t.Cleanup()
+
+See [Test Workflow Guide](./test-workflow.md) for complete testing documentation.
+
 ## References
 
 - **MCP Protocol:** https://modelcontextprotocol.io/
 - **JSON-RPC 2.0:** https://www.jsonrpc.org/specification
 - **Cobra CLI:** https://github.com/spf13/cobra
+- **Go Testing:** https://pkg.go.dev/testing
 - **Scout Reports:** `/plans/reports/scout-*.md`
 
 ---
 
 **Owner:** Development Team
 **Review Cycle:** Quarterly
-**Next Review:** 2026-04-21
+**Next Review:** 2026-04-23

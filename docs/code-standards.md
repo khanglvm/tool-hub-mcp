@@ -226,38 +226,110 @@ proc.reqID++
 - `config.go` → `config_test.go`
 - `transformer.go` → `transformer_test.go`
 
-### Test Coverage
+**Package Structure:**
+- White-box tests: Same package (access private functions)
+- Black-box tests: `package_test` (test public API only)
 
-**Target:**
-- Critical paths: 100% coverage
-- Core logic: >80% coverage
-- Overall: >70% coverage
+### Test Coverage Requirements
 
-**Test Types:**
-1. **Unit Tests:** Single function/logic testing
-2. **Integration Tests:** Component interaction
-3. **End-to-End Tests:** Full workflow (via CLI commands)
+**Mandatory Thresholds:**
+- **Overall:** 80% minimum (enforced by CI/CD and git hooks)
+- **CLI/Core logic:** 80%+
+- **MCP handlers:** 90%+
+- **Spawner:** 85%+
+- **Critical paths:** 100%
 
-**Example:**
+**Current Coverage (as of 2026-01-22):**
+- `internal/benchmark`: 97.8%
+- `internal/learning`: 89.3%
+- `internal/config`: 80.7%
+- `internal/search`: 69.1%
+- `internal/storage`: 48.7%
+- `internal/mcp`: 43.5%
+- `internal/cli`: 21.1%
+- `internal/spawner`: 13.2%
+
+**Enforcement:**
+- Pre-push git hook blocks push if coverage < 80%
+- CI/CD pipeline fails if coverage < 80%
+- Coverage reports uploaded to Codecov
+
+### Test Types
+
+**1. Unit Tests**
+- Location: `*_test.go` alongside source
+- Purpose: Test individual functions in isolation
+- Pattern: Table-driven tests with subtests
+- Run: `go test ./...`
+
+**2. Integration Tests**
+- Location: `internal/mcp/server_integration_test.go`
+- Purpose: Test component interactions
+- Coverage: 90%+ for MCP handlers
+- Run: `go test ./internal/mcp -v`
+
+**3. End-to-End Tests**
+- Location: `test/e2e/workflow_test.go`
+- Purpose: Full workflow validation
+- Status: In development
+- Run: `go test ./test/e2e -v`
+
+### Table-Driven Test Pattern
+
+**Standard Pattern (use for all tests):**
+
 ```go
 func TestToCamelCase(t *testing.T) {
     tests := []struct {
+        name     string
         input    string
         expected string
     }{
-        {"dash-case", "dashCase"},
-        {"snake_case", "snakeCase"},
-        {"PascalCase", "pascalCase"},
+        {"dash-case", "dash-case", "dashCase"},
+        {"snake_case", "snake_case", "snakeCase"},
+        {"PascalCase", "PascalCase", "pascalCase"},
+        {"empty string", "", ""},
     }
 
     for _, tt := range tests {
-        result := ToCamelCase(tt.input)
-        if result != tt.expected {
-            t.Errorf("ToCamelCase(%q) = %q, want %q", tt.input, result, tt.expected)
-        }
+        t.Run(tt.name, func(t *testing.T) {
+            got := ToCamelCase(tt.input)
+            if got != tt.expected {
+                t.Errorf("ToCamelCase(%q) = %q, want %q",
+                    tt.input, got, tt.expected)
+            }
+        })
     }
 }
 ```
+
+### Subprocess Mocking
+
+**For code that spawns external processes:**
+
+```go
+func TestHelperProcess(t *testing.T) {
+    if os.Getenv("GO_TEST_PROCESS") != "1" {
+        return
+    }
+    // Mock process behavior based on env vars
+    mode := os.Getenv("HELPER_MODE")
+    switch mode {
+    case "success":
+        fmt.Println(`{"jsonrpc":"2.0","result":"ok"}`)
+    case "error":
+        os.Exit(1)
+    }
+}
+
+func TestSpawner(t *testing.T) {
+    cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess")
+    cmd.Env = []string{"GO_TEST_PROCESS=1", "HELPER_MODE=success"}
+    // Test spawning logic
+}
+```
+
+See `internal/spawner/pool_test.go` for complete implementation.
 
 ### Benchmark Tests
 
@@ -274,6 +346,91 @@ func BenchmarkCountTokens(b *testing.B) {
     }
 }
 ```
+
+### Git Hooks Integration
+
+**Pre-commit Hook:**
+- Runs fast tests on changed packages
+- Execution time: <10s
+- Location: `.git/hooks/pre-commit`
+- Script: `scripts/test-pre-commit.sh`
+- Install: `make setup-hooks`
+
+**Pre-push Hook:**
+- Runs full test suite with race detector
+- Checks 80% coverage threshold
+- Execution time: <60s
+- Location: `.git/hooks/pre-push`
+- Script: `scripts/test-pre-push.sh`
+- Bypass: `git commit --no-verify` (emergencies only)
+
+### CI/CD Testing
+
+**GitHub Actions Workflow:** `.github/workflows/test.yml`
+
+**Matrix Testing:**
+- Go versions: 1.21, 1.22, 1.23.x
+- Race detector enabled
+- Coverage enforcement (80% threshold)
+- Codecov integration
+
+**Triggers:**
+- Push to main/develop
+- Pull requests to main
+
+### New Feature Policy
+
+**ALL new features MUST include:**
+
+1. **Unit Tests** with 80%+ coverage
+   - Happy path scenarios
+   - Error cases
+   - Edge cases
+
+2. **Integration Tests** (if API/CLI changes)
+   - Component interactions
+   - Protocol compliance
+   - End-to-end flows
+
+3. **Error Scenario Coverage**
+   - Invalid inputs
+   - Network failures
+   - Timeout handling
+   - Resource exhaustion
+
+4. **Documentation**
+   - Test scenarios explained
+   - Known limitations
+   - Coverage justification if < 80%
+
+### Test Best Practices
+
+**Organization:**
+- One test file per source file
+- Group related tests in subtests with `t.Run()`
+- Extract common setup to helper functions
+
+**Naming:**
+- Test functions: `TestFunctionName`
+- Subtests: Descriptive names (e.g., "empty input returns empty string")
+- Benchmark tests: `BenchmarkFunctionName`
+
+**Assertions:**
+- Use `t.Errorf` for failures with context
+- Include actual vs expected in messages
+- Use `t.Fatal` for critical failures that prevent further testing
+
+**Test Data:**
+- Use `t.TempDir()` for file operations (auto-cleanup)
+- Each test should be independent (no shared state)
+- Use `t.Cleanup()` or defer for resource cleanup
+
+**Performance:**
+- Use `testing.Short()` for long-running tests
+- Parallelize independent tests with `t.Parallel()`
+- Focus coverage on critical paths, not simple getters
+
+See [Test Workflow Guide](./test-workflow.md) for complete testing documentation.
 
 ## Error Handling
 

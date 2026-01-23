@@ -273,4 +273,3 @@ func (m *mockStorage) GetEmbedding(toolName string) ([]float32, string, error) {
 	}
 	return nil, "", fmt.Errorf("embedding not found")
 }
-

@@ -2,6 +2,7 @@ package learning
 
 import (
 	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 
 // mockStorage is a mock implementation of storage.Storage for testing.
 type mockStorage struct {
+	mu      sync.RWMutex
 	history map[string][]storage.UsageEvent
 }
 
@@ -28,6 +30,8 @@ func (m *mockStorage) Close() error {
 }
 
 func (m *mockStorage) RecordUsage(event storage.UsageEvent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.history == nil {
 		m.history = make(map[string][]storage.UsageEvent)
 	}
@@ -36,6 +40,8 @@ func (m *mockStorage) RecordUsage(event storage.UsageEvent) error {
 }
 
 func (m *mockStorage) GetUsageHistory(toolName string, since time.Time) ([]storage.UsageEvent, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if hist, ok := m.history[toolName]; ok {
 		return hist, nil
 	}
@@ -51,6 +57,8 @@ func (m *mockStorage) GetEmbedding(toolName string) ([]float32, string, error) {
 }
 
 func (m *mockStorage) ClearHistory(toolName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	delete(m.history, toolName)
 	return nil
 }

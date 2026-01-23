@@ -268,13 +268,13 @@ func TestTracker_StorageError(t *testing.T) {
 
 func TestUsageEvent_ToStorage(t *testing.T) {
 	event := UsageEvent{
-		ToolName:        "test_tool",
-		ContextHash:     "test-context-hash",
-		SearchID:        "test-search-id",
-		Selected:        true,
-		Timestamp:       time.Now(),
-		Rating:          5,
-		WasRecommended:  true,
+		ToolName:       "test_tool",
+		ContextHash:    "test-context-hash",
+		SearchID:       "test-search-id",
+		Selected:       true,
+		Timestamp:      time.Now(),
+		Rating:         5,
+		WasRecommended: true,
 	}
 
 	storageEvent := event.ToStorage()

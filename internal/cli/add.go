@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/spf13/cobra"
 	"github.com/khanglvm/tool-hub-mcp/internal/config"
+	"github.com/spf13/cobra"
 )
 
 // NewAddCmd creates the 'add' command for manually adding MCP servers.
@@ -18,11 +18,11 @@ import (
 // 2. Flags: Specify --command, --arg, --env directly
 func NewAddCmd() *cobra.Command {
 	var (
-		command     string
-		args        []string
-		envVars     []string
-		jsonInput   string
-		noConfirm   bool
+		command   string
+		args      []string
+		envVars   []string
+		jsonInput string
+		noConfirm bool
 	)
 
 	cmd := &cobra.Command{
@@ -133,7 +133,7 @@ func runAddInteractive(jsonInput string, noConfirm bool) error {
 		reader := bufio.NewReader(os.Stdin)
 		response, _ := reader.ReadString('\n')
 		response = strings.TrimSpace(strings.ToLower(response))
-		
+
 		if response != "" && response != "y" && response != "yes" {
 			fmt.Println("Cancelled.")
 			return nil
@@ -181,6 +181,9 @@ func runAddInteractive(jsonInput string, noConfirm bool) error {
 	if err := config.Save(cfg, configPath); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
+
+	// Auto-regenerate tool index for bash/grep access
+	RegenerateIndex()
 
 	if skippedCount > 0 {
 		fmt.Printf("\n✓ Added %d server(s), skipped %d to %s\n", addedCount, skippedCount, configPath)
@@ -259,7 +262,7 @@ func parseServersMap(raw map[string]interface{}) map[string]*config.ServerConfig
 //   - env: env, environment, envVars, env_vars, envvars
 func parseSingleServer(raw map[string]interface{}) *config.ServerConfig {
 	// Find command (required)
-	command := findStringKey(raw, 
+	command := findStringKey(raw,
 		"command", "cmd", "exec", "executable", "run", "bin", "binary",
 		"Command", "CMD", "Cmd")
 	if command == "" {
@@ -348,7 +351,7 @@ func readMultilineInput() string {
 		}
 
 		line = strings.TrimRight(line, "\r\n")
-		
+
 		if line == "" {
 			emptyCount++
 			if emptyCount >= 1 {
@@ -416,6 +419,9 @@ func runAddWithFlags(name, command string, args, envVars []string) error {
 	if err := config.Save(cfg, configPath); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
+
+	// Auto-regenerate tool index for bash/grep access
+	RegenerateIndex()
 
 	fmt.Printf("✓ Added server '%s' to %s\n", camelName, configPath)
 	return nil
