@@ -2,30 +2,69 @@ name: Build and Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    paths: ['npm/package.json']
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and pack every platform without publishing
+        type: boolean
+        default: true
+        required: true
+      verify_trust:
+        description: Verify npm OIDC trust without publishing
+        type: boolean
+        default: false
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: npm-release-${{ github.repository }}
+  cancel-in-progress: false
 
 env:
-  # Version from tag (strips 'v' prefix for npm)
-  VERSION: ${{ github.ref_name }}
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
 
 jobs:
-  # ============================================
-  # Run tests before building
-  # ============================================
-  test:
-    uses: ./.github/workflows/test.yml
+  version:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      validate: ${{ steps.release.outputs.validate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global npm@11
+      - name: Check version and all six registry packages
+        id: release
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: node .github/scripts/npm-release.mjs check
 
-  # ============================================
-  # Build Go binaries for all platforms
-  # ============================================
+  test:
+    needs: version
+    if: needs.version.outputs.validate == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test -race ./...
+
   build:
-    needs: test
+    needs: [version, test]
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - goos: darwin
@@ -48,130 +87,64 @@ jobs:
             goarch: amd64
             suffix: Windows-x86_64.exe
             npm_platform: win32-x64
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
-
-      - name: Build
+          go-version-file: go.mod
+      - name: Build platform binary
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-        run: |
-          go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
-            -o tool-hub-mcp-${{ matrix.suffix }} \
-            ./cmd/tool-hub-mcp
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+          BINARY_SUFFIX: ${{ matrix.suffix }}
+        run: go build -ldflags="-s -w -X main.version=v${RELEASE_VERSION}" -o "tool-hub-mcp-${BINARY_SUFFIX}" ./cmd/tool-hub-mcp
+      - uses: actions/upload-artifact@v4
         with:
           name: tool-hub-mcp-${{ matrix.suffix }}
           path: tool-hub-mcp-${{ matrix.suffix }}
-
-      # Store platform info for npm packaging
-      - name: Upload platform metadata
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: npm-platform-${{ matrix.npm_platform }}
           path: tool-hub-mcp-${{ matrix.suffix }}
 
-  # ============================================
-  # Create GitHub Release with all binaries
-  # ============================================
   release:
     needs: build
+    if: github.ref_type == 'tag' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
           pattern: tool-hub-mcp-*
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/*
           generate_release_notes: true
 
-  # ============================================
-  # Publish npm packages
-  # ============================================
   npm-publish:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Download all platform binaries
-        uses: actions/download-artifact@v4
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global npm@11
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
           pattern: npm-platform-*
-
-      - name: Extract version from tag
-        run: echo "NPM_VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
-
-      - name: Prepare platform packages
-        run: |
-          # Map of npm platforms to binary suffixes
-          declare -A SUFFIX_MAP=(
-            ["darwin-arm64"]="Darwin-arm64"
-            ["darwin-x64"]="Darwin-x86_64"
-            ["linux-x64"]="Linux-x86_64"
-            ["linux-arm64"]="Linux-arm64"
-            ["win32-x64"]="Windows-x86_64.exe"
-          )
-          
-          for npm_platform in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64; do
-            suffix="${SUFFIX_MAP[$npm_platform]}"
-            platform_dir="npm/platforms/${npm_platform}"
-            bin_dir="${platform_dir}/bin"
-            
-            mkdir -p "${bin_dir}"
-            
-            # Copy binary to platform package
-            if [[ "$npm_platform" == "win32-x64" ]]; then
-              cp "artifacts/npm-platform-${npm_platform}/tool-hub-mcp-${suffix}" "${bin_dir}/tool-hub-mcp.exe"
-            else
-              cp "artifacts/npm-platform-${npm_platform}/tool-hub-mcp-${suffix}" "${bin_dir}/tool-hub-mcp"
-              chmod +x "${bin_dir}/tool-hub-mcp"
-            fi
-            
-            # Update version in package.json
-            cd "${platform_dir}"
-            npm version "${NPM_VERSION}" --no-git-tag-version --allow-same-version
-            cd - > /dev/null
-          done
-          
-          # Update main package version
-          cd npm
-          npm version "${NPM_VERSION}" --no-git-tag-version --allow-same-version
-          cd - > /dev/null
-
-      - name: Publish platform packages
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          for npm_platform in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64; do
-            cd "npm/platforms/${npm_platform}"
-            npm publish --access public || echo "Platform package may already exist"
-            cd - > /dev/null
-          done
-
-      - name: Publish main package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          cd npm
-          npm publish --access public
+      - name: Verify npm trusted publishing
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_trust
+        run: node .github/scripts/verify-npm-trust.mjs @khanglvm/tool-hub-mcp @khanglvm/tool-hub-mcp-darwin-arm64 @khanglvm/tool-hub-mcp-darwin-x64 @khanglvm/tool-hub-mcp-linux-x64 @khanglvm/tool-hub-mcp-linux-arm64 @khanglvm/tool-hub-mcp-win32-x64
+      - name: Prepare and pack all six npm packages
+        run: node .github/scripts/npm-release.mjs prepare
+      - name: Publish packages or validate dry run
+        run: node .github/scripts/npm-release.mjs publish

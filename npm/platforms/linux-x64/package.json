@@ -2,9 +2,17 @@
   "name": "@khanglvm/tool-hub-mcp-linux-x64",
   "version": "1.1.5",
   "description": "Platform-specific binary for tool-hub-mcp (linux-x64)",
-  "os": ["linux"],
-  "cpu": ["x64"],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
   "bin": {
-    "tool-hub-mcp": "./bin/tool-hub-mcp"
+    "tool-hub-mcp": "bin/tool-hub-mcp"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/khanglvm/tool-hub-mcp.git"
   }
 }
