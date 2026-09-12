@@ -59,6 +59,7 @@ func TestBenchmarkCommandAliases(t *testing.T) {
 }
 
 func TestBenchmarkCommandExecution(t *testing.T) {
+	useCLIConfig(t, `{"servers":{"fixture":{"command":"fixture"}}}`)
 	tests := []struct {
 		name    string
 		args    []string

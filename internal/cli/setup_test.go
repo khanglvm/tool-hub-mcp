@@ -2,9 +2,38 @@ package cli
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestMain(m *testing.M) {
+	homeDir, err := os.MkdirTemp("", "tool-hub-cli-tests-")
+	if err != nil {
+		panic(err)
+	}
+	// Background index regeneration must also stay inside the test workspace.
+	if err := os.Setenv("HOME", homeDir); err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("USERPROFILE", homeDir); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	os.RemoveAll(homeDir)
+	os.Exit(code)
+}
+
+func useCLIConfig(t *testing.T, contents string) {
+	t.Helper()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USERPROFILE", homeDir)
+	if err := os.WriteFile(filepath.Join(homeDir, ".tool-hub-mcp.json"), []byte(contents), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestNewSetupCmd(t *testing.T) {
 	cmd := NewSetupCmd()

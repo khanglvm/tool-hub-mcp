@@ -255,6 +255,7 @@ func TestRegenerateIndexNonBlocking(t *testing.T) {
 }
 
 func TestExportIndexCommandExecution(t *testing.T) {
+	useCLIConfig(t, `{"servers":{}}`)
 	tests := []struct {
 		name    string
 		args    []string

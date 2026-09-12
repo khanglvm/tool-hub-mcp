@@ -49,6 +49,7 @@ func TestVerifyCommandHelp(t *testing.T) {
 }
 
 func TestVerifyCommandExecution(t *testing.T) {
+	useCLIConfig(t, `{"servers":{}}`)
 	tests := []struct {
 		name    string
 		args    []string
