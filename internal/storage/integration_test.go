@@ -8,21 +8,15 @@ import (
 	"time"
 )
 
-// TestRealDatabaseCreation verifies actual DB creation in home directory.
+// TestRealDatabaseCreation verifies database creation in an isolated directory.
 func TestRealDatabaseCreation(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skipf("Cannot get home directory: %v", err)
-	}
-
-	dbDir := filepath.Join(home, ".tool-hub-mcp")
+	dbDir := filepath.Join(t.TempDir(), ".tool-hub-mcp")
 	dbPath := filepath.Join(dbDir, "history.db")
 
 	// Ensure directory exists
 	if err := os.MkdirAll(dbDir, 0755); err != nil {
 		t.Fatalf("Failed to create directory: %v", err)
 	}
-	defer os.RemoveAll(dbDir) // Cleanup
 
 	storage := &SQLiteStorage{
 		dbPath:  dbPath,

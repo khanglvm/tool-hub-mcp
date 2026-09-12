@@ -50,7 +50,7 @@ switch (process.argv[2]) {
       }
     }
     const published = entries.map(entry => ({ name: entry.name, exists: exists(entry.name) }));
-    const validate = dryRun || published.some(entry => !entry.exists);
+    const validate = dryRun || process.env.GITHUB_REF_TYPE === "tag" || published.some(entry => !entry.exists);
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\nvalidate=${validate}\n`);
     console.log(JSON.stringify({ version, distTag, dryRun, validate, packages: published }));
     break;

@@ -2,6 +2,7 @@ package search
 
 import (
 	"math"
+	"reflect"
 	"testing"
 )
 
@@ -127,9 +128,13 @@ func TestFuseScores_OnlyBM25(t *testing.T) {
 		t.Fatalf("expected 2 fused results, got %d", len(fused))
 	}
 
-	// Should use BM25 scores directly
-	if fused[0].Score != bm25Results[0].Score {
-		t.Errorf("expected BM25 score, got %f", fused[0].Score)
+	// Fusion preserves scores; SearchHybrid sorts the results afterward.
+	scores := make(map[string]float64)
+	for _, result := range fused {
+		scores[result.ToolName] = result.Score
+	}
+	if !reflect.DeepEqual(scores, map[string]float64{"tool_a": 0.8, "tool_b": 0.6}) {
+		t.Errorf("unexpected BM25 scores: %v", scores)
 	}
 }
 
@@ -147,9 +152,12 @@ func TestFuseScores_OnlySemantic(t *testing.T) {
 		t.Fatalf("expected 2 fused results, got %d", len(fused))
 	}
 
-	// Should use semantic scores directly
-	if fused[0].Score != semanticResults[0].Score {
-		t.Errorf("expected semantic score, got %f", fused[0].Score)
+	scores := make(map[string]float64)
+	for _, result := range fused {
+		scores[result.ToolName] = result.Score
+	}
+	if !reflect.DeepEqual(scores, map[string]float64{"tool_a": 0.9, "tool_b": 0.7}) {
+		t.Errorf("unexpected semantic scores: %v", scores)
 	}
 }
 
