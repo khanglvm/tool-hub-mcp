@@ -60,8 +60,19 @@ jobs:
           go-version-file: go.mod
       - run: go test -race ./...
 
+  test-windows-lock:
+    needs: version
+    if: needs.version.outputs.validate == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./internal/cli -run 'Test(AcquireFileLock|ReleaseFileLock|ConcurrentFileLocking)$'
+
   build:
-    needs: [version, test]
+    needs: [version, test, test-windows-lock]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

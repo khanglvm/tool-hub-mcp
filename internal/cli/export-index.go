@@ -9,7 +9,6 @@ import (
 	"github.com/khanglvm/tool-hub-mcp/internal/config"
 	"github.com/khanglvm/tool-hub-mcp/internal/spawner"
 	"github.com/spf13/cobra"
-	"golang.org/x/sys/unix"
 )
 
 // ToolEntry represents a tool in the exported index.
@@ -166,7 +165,7 @@ func acquireFileLock(path string) (*os.File, error) {
 	}
 
 	// Try to acquire exclusive lock (non-blocking)
-	err = unix.Flock(int(lockFile.Fd()), unix.LOCK_EX|unix.LOCK_NB)
+	err = lockIndexFile(lockFile)
 	if err != nil {
 		lockFile.Close()
 		return nil, fmt.Errorf("failed to acquire lock (another export in progress?): %w", err)
@@ -184,7 +183,7 @@ func releaseFileLock(lockFile *os.File) error {
 	lockPath := lockFile.Name()
 
 	// Release lock
-	unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
+	unlockIndexFile(lockFile)
 	lockFile.Close()
 
 	// Remove lock file
